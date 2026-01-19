@@ -1,13 +1,13 @@
 export default function StatusBadge({ status }) {
-  const styles = {
-    "On-Time": "bg-green-100 text-green-700 border-green-200",
-    "Late": "bg-amber-100 text-amber-700 border-amber-200",
-    "Absent": "bg-red-100 text-red-700 border-red-200",
-  };
-
+  const isLate = status === "Late";
+  
   return (
-    <span className={`px-3 py-1 rounded-full text-xs font-bold border ${styles[status] || "bg-slate-100"}`}>
-      {status}
+    <span className={`px-2.5 py-1 rounded-full text-xs font-bold border ${
+      isLate 
+        ? "bg-rose-50 text-rose-600 border-rose-100" 
+        : "bg-emerald-50 text-emerald-600 border-emerald-100"
+    }`}>
+      {status || "On-Time"}
     </span>
   );
 }

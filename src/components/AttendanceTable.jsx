@@ -3,57 +3,56 @@ import { db } from "../lib/firebase";
 import { collection, query, orderBy, limit, onSnapshot } from "firebase/firestore";
 
 export default function AttendanceTable() {
-  const [logs, setLogs] = useState([]);
+  const [activeUsers, setActiveUsers] = useState([]);
 
   useEffect(() => {
-    // Query for the latest 10 attendance records
+    // We remove the "where type == IN" for now and just get the latest logs
     const q = query(
-      collection(db, "attendance_logs"),
+      collection(db, "attendance_logs"), 
       orderBy("timestamp", "desc"),
       limit(10)
     );
-
+    
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setLogs(data);
+      const users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setActiveUsers(users);
     });
 
     return () => unsubscribe();
   }, []);
 
   return (
-    <div className="overflow-x-auto bg-white rounded-xl shadow-sm border border-gray-100">
-      <table className="w-full text-left">
-        <thead className="bg-gray-50 border-b border-gray-100">
-          <tr>
-            <th className="px-6 py-4 text-sm font-semibold text-gray-600">Employee</th>
-            <th className="px-6 py-4 text-sm font-semibold text-gray-600">Check-In</th>
-            <th className="px-6 py-4 text-sm font-semibold text-gray-600">Status</th>
-            <th className="px-6 py-4 text-sm font-semibold text-gray-600">Department</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-50">
-          {logs.map((log) => (
-            <tr key={log.id} className="hover:bg-gray-50/50 transition-colors">
-              <td className="px-6 py-4 font-medium text-gray-900">{log.userName}</td>
-              <td className="px-6 py-4 text-gray-600">
-                {log.timestamp?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </td>
-              <td className="px-6 py-4">
-                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                  log.status === "On-Time" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
-                }`}>
-                  {log.status}
-                </span>
-              </td>
-              <td className="px-6 py-4 text-gray-500">{log.department}</td>
+    <div className="mt-4 overflow-x-auto">
+      {activeUsers.length === 0 ? (
+        <p className="text-gray-400 text-sm italic py-4">No recent attendance activity found.</p>
+      ) : (
+        <table className="w-full text-left">
+          <thead>
+            <tr className="text-gray-400 text-xs uppercase tracking-wider border-b border-slate-50">
+              <th className="pb-3 font-semibold">Employee</th>
+              <th className="pb-3 font-semibold">Time</th>
+              <th className="pb-3 font-semibold">Status</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody className="divide-y divide-slate-50">
+            {activeUsers.map(user => (
+              <tr key={user.id} className="hover:bg-slate-50/50 transition-colors">
+                <td className="py-4 font-medium text-slate-700">{user.userName}</td>
+                <td className="py-4 text-sm text-slate-500">{user.time || "Just now"}</td>
+                <td className="py-4">
+                  <span className={`px-2 py-1 rounded-md text-xs font-bold ${
+                    user.status === "Late" 
+                    ? "bg-red-50 text-red-600" 
+                    : "bg-green-50 text-green-600"
+                  }`}>
+                    {user.status}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }
