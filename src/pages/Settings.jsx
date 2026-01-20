@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { db } from "../lib/firebase";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
-import { Save, Clock, MapPin, ShieldCheck } from "lucide-react";
+import { doc, getDoc, setDoc } from "firebase/firestore";
+import { Save, Clock, MapPin } from "lucide-react";
 import { toast } from "react-hot-toast";
 
 export default function Settings() {
@@ -11,17 +11,24 @@ export default function Settings() {
     gracePeriod: 5,
     officeLat: 0,
     officeLng: 0,
-    radius: 500 // meters
+    radius: 500 
   });
 
   useEffect(() => {
     async function fetchSettings() {
-      const docRef = doc(db, "system", "config");
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        setConfig(docSnap.data());
+      try {
+        const docRef = doc(db, "system", "config");
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          setConfig(docSnap.data());
+        }
+      } catch (error) {
+        console.error("Error fetching settings:", error);
+        toast.error("Could not load settings. Check permissions.");
+      } finally {
+        // This ensures the loading screen clears even if there's an error
+        setLoading(false);
       }
-      setLoading(false);
     }
     fetchSettings();
   }, []);
@@ -30,24 +37,30 @@ export default function Settings() {
     e.preventDefault();
     try {
       const docRef = doc(db, "system", "config");
-      await updateDoc(docRef, config);
+      // Use setDoc with merge: true so it creates the doc if it's missing
+      await setDoc(docRef, config, { merge: true });
       toast.success("Settings updated successfully!");
     } catch (error) {
-      toast.error("Failed to update settings.");
+      console.error(error);
+      toast.error("Failed to update settings. Are you an admin?");
     }
   };
 
-  if (loading) return <div className="p-8 text-slate-500">Loading Configuration...</div>;
+  if (loading) return (
+    <div className="flex items-center gap-2 p-8 text-slate-500 font-medium">
+      <div className="w-5 h-5 border-2 border-slate-300 border-t-blue-600 rounded-full animate-spin"></div>
+      Loading Configuration...
+    </div>
+  );
 
   return (
-    <div className="max-w-4xl space-y-6">
+    <div className="max-w-4xl space-y-6 animate-in fade-in duration-500">
       <div>
         <h2 className="text-2xl font-bold text-slate-800">System Settings</h2>
         <p className="text-slate-500 text-sm">Configure workplace rules and geofencing parameters.</p>
       </div>
 
       <form onSubmit={handleSave} className="space-y-6">
-        {/* Attendance Rules */}
         <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
           <div className="flex items-center gap-2 mb-4 text-blue-600 font-bold">
             <Clock size={20} /> <h3>Attendance Rules</h3>
@@ -67,14 +80,13 @@ export default function Settings() {
               <input 
                 type="number" 
                 value={config.gracePeriod}
-                onChange={(e) => setConfig({...config, gracePeriod: parseInt(e.target.value)})}
+                onChange={(e) => setConfig({...config, gracePeriod: parseInt(e.target.value) || 0})}
                 className="w-full p-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
               />
             </div>
           </div>
         </div>
 
-        {/* Geofencing */}
         <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
           <div className="flex items-center gap-2 mb-4 text-emerald-600 font-bold">
             <MapPin size={20} /> <h3>Office Geofencing</h3>
@@ -85,7 +97,7 @@ export default function Settings() {
               <input 
                 type="number" step="any"
                 value={config.officeLat}
-                onChange={(e) => setConfig({...config, officeLat: parseFloat(e.target.value)})}
+                onChange={(e) => setConfig({...config, officeLat: parseFloat(e.target.value) || 0})}
                 className="w-full p-2 border border-slate-200 rounded-lg outline-none"
               />
             </div>
@@ -94,7 +106,7 @@ export default function Settings() {
               <input 
                 type="number" step="any"
                 value={config.officeLng}
-                onChange={(e) => setConfig({...config, officeLng: parseFloat(e.target.value)})}
+                onChange={(e) => setConfig({...config, officeLng: parseFloat(e.target.value) || 0})}
                 className="w-full p-2 border border-slate-200 rounded-lg outline-none"
               />
             </div>
@@ -103,7 +115,7 @@ export default function Settings() {
               <input 
                 type="number" 
                 value={config.radius}
-                onChange={(e) => setConfig({...config, radius: parseInt(e.target.value)})}
+                onChange={(e) => setConfig({...config, radius: parseInt(e.target.value) || 0})}
                 className="w-full p-2 border border-slate-200 rounded-lg outline-none"
               />
             </div>
@@ -112,7 +124,7 @@ export default function Settings() {
 
         <button 
           type="submit"
-          className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors shadow-lg"
+          className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg active:scale-95"
         >
           <Save size={20} /> Save Configuration
         </button>
