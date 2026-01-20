@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react"; 
 import { db } from "../lib/firebase";
 import { collection, query, orderBy, onSnapshot, where } from "firebase/firestore";
-import { useAuth } from "../context/AuthContext"; // Added Auth context
+import { useAuth } from "../context/AuthContext";
 import { detectPatterns } from "../services/analyticsEngine";
 import { toast } from "react-hot-toast";
 
@@ -12,7 +12,7 @@ import AttendanceTable from "../components/AttendanceTable";
 import PunchButton from "../components/PunchButton";
 
 export default function Dashboard() {
-  const { user } = useAuth(); // Get current logged in user
+  const { user } = useAuth();
   const [logs, setLogs] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const lastLogId = useRef(null);
@@ -20,15 +20,14 @@ export default function Dashboard() {
     totalCount: 0,
     presentCount: 0,
     lateCount: 0,
-    onLeave: 0
+    earlyCount: 0 // Added early count for better stats
   });
 
   useEffect(() => {
     if (!user) return;
 
-    // RULE SYNC: If user is admin, show all logs. If not, only show theirs.
-    // This prevents the "Missing or insufficient permissions" red error.
     let q;
+    // Admins see everyone, staff see only their own logs
     if (user.role === 'admin') {
       q = query(collection(db, "attendance_logs"), orderBy("timestamp", "desc"));
     } else {
@@ -42,7 +41,7 @@ export default function Dashboard() {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetchedLogs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       
-      // Real-time Notification logic
+      // Real-time Toast Notifications
       if (fetchedLogs.length > 0) {
         const newestLog = fetchedLogs[0];
         if (lastLogId.current && newestLog.id !== lastLogId.current) {
@@ -53,19 +52,20 @@ export default function Dashboard() {
 
       setLogs(fetchedLogs);
       
-      // Calculate Stats
+      // Advanced Stat Calculations
       const late = fetchedLogs.filter(l => l.status === "Late").length;
+      const early = fetchedLogs.filter(l => l.status === "Early").length;
+      
       setStats({
         totalCount: fetchedLogs.length,
         presentCount: fetchedLogs.length,
         lateCount: late,
-        onLeave: 0
+        earlyCount: early
       });
     }, (error) => {
       console.error("Dashboard Sync Error:", error);
-      // If rules fail, show a helpful message
       if (error.code === 'permission-denied') {
-        toast.error("Access restricted. Update your role to 'admin' in Firestore.");
+        toast.error("Access restricted. Ensure your role is set to 'admin'.");
       }
     });
 
@@ -81,56 +81,56 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-4 md:space-y-6 max-w-full overflow-x-hidden p-2">
-      {/* Header */}
+      {/* Header Section */}
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
         <div>
-          <h1 className="text-xl md:text-2xl font-bold text-gray-800">
-            {user?.role === 'admin' ? "Admin Dashboard" : "My Attendance"}
+          <h1 className="text-xl md:text-2xl font-black text-slate-800 tracking-tight">
+            {user?.role === 'admin' ? "Executive Overview" : "My Attendance Hub"}
           </h1>
-          <p className="text-gray-500 text-xs md:text-sm">
-            {user?.role === 'admin' ? "Real-time employee insights" : "View your punch history"}
+          <p className="text-slate-500 text-xs md:text-sm font-medium">
+            {user?.role === 'admin' ? "Monitoring workforce punctuality" : "Tracking your daily arrival times"}
           </p>
         </div>
         <div className="w-full sm:w-auto">
-          {/* Ensure PunchButton uses the shared user context */}
           <PunchButton />
         </div>
       </div>
 
       <StatsGrid stats={stats} />
 
-      {/* Behavioral Flags - Only for Admins */}
+      {/* Admin Behavioral Alerts */}
       {user?.role === 'admin' && alerts.length > 0 && (
-        <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl shadow-sm">
-          <h3 className="text-amber-800 font-bold flex items-center gap-2 text-sm md:text-base">
-            ⚠️ Attention Required: Behavioral Flags
+        <div className="bg-rose-50 border border-rose-100 p-4 rounded-2xl shadow-sm">
+          <h3 className="text-rose-800 font-bold flex items-center gap-2 text-sm">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
+            </span>
+            System Intelligence: Attendance Flags
           </h3>
           <ul className="mt-2 space-y-1">
             {alerts.slice(0, 3).map((alert, i) => (
-              <li key={i} className="text-xs md:text-sm text-amber-700">
-                <span className="font-bold">{alert.userName}</span>: {alert.issue}
+              <li key={i} className="text-xs text-rose-700 font-medium bg-white/50 p-2 rounded-lg">
+                <span className="font-black underline">{alert.userName}</span>: {alert.issue}
               </li>
             ))}
           </ul>
         </div>
       )}
 
-      {/* Main Content Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
-        <div className="lg:col-span-2 order-2 lg:order-1">
-          <div className="bg-white p-3 md:p-5 rounded-xl border border-gray-100 shadow-sm">
-            <h3 className="font-bold text-gray-800 mb-4 text-sm md:text-base">Attendance Trends</h3>
-            <div className="h-[250px] md:h-[350px]">
-               <AttendanceChart data={logs} />
-            </div>
-          </div>
+      {/* Dashboard Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Trend Chart - Height increased for visibility */}
+        <div className="lg:col-span-2">
+           <AttendanceChart logs={logs} /> 
         </div>
 
-        <div className="bg-white p-4 md:p-5 rounded-xl border border-gray-100 shadow-sm overflow-hidden order-1 lg:order-2">
-          <h3 className="font-bold text-gray-800 mb-4 text-sm md:text-base">
-            {user?.role === 'admin' ? "Live Check-ins" : "Recent Activity"}
+        {/* Live Feed Table */}
+        <div className="bg-white p-5 rounded-[2rem] border border-slate-100 shadow-xl shadow-slate-200/50">
+          <h3 className="font-black text-slate-800 mb-4 text-sm uppercase tracking-widest">
+            {user?.role === 'admin' ? "Live Stream" : "My Log History"}
           </h3>
-          <div className="overflow-x-auto">
+          <div className="h-[400px] overflow-y-auto custom-scrollbar">
             <AttendanceTable logs={logs} />
           </div>
         </div>
