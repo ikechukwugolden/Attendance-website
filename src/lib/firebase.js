@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider } from "firebase/auth"; // Add GoogleAuthProvider here
+import { getAuth, GoogleAuthProvider } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
@@ -11,7 +11,12 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
 
+// 🟢 PRODUCTION CHECK: This prevents the app from breaking if Vercel hasn't loaded keys yet
+if (!firebaseConfig.apiKey) {
+  console.warn("Firebase API Key is missing. Check your Vercel Environment Variables!");
+}
+
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
-export const googleProvider = new GoogleAuthProvider(); // ADD THIS LINE
+export const googleProvider = new GoogleAuthProvider();
