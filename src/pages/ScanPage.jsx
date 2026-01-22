@@ -17,7 +17,7 @@ export default function ScanPage() {
   
   const businessId = searchParams.get("bid");
 
-  // --- 🟢 GEOLOCATION HELPER: Haversine Formula ---
+  // Haversine Formula for distance
   const calculateDistance = (lat1, lon1, lat2, lon2) => {
     const R = 6371e3; // Earth's radius in meters
     const dLat = (lat2 - lat1) * (Math.PI / 180);
@@ -42,7 +42,8 @@ export default function ScanPage() {
           setBusinessData(docSnap.data());
         }
       } catch (err) {
-        console.error("Error fetching business:", err);
+        console.error("Fetch Error:", err);
+        toast.error("Database connection lost");
       } finally {
         setLoadingBusiness(false);
       }
@@ -52,22 +53,22 @@ export default function ScanPage() {
 
   const handleClockIn = async () => {
     if (!user) {
-      toast.error("Authentication required");
+      toast.error("Please login first");
       return navigate("/login");
     }
     
     setIsProcessing(true);
     const toastId = toast.loading("Verifying security perimeter...");
 
-    // Retrieve the calibration settings we set in SetupBusiness.jsx
     const rules = businessData?.settings || {};
-    const officeLocation = rules.location; // {lat, lng} from our MapPicker
+    const officeLocation = rules.location; 
 
+    // 🟢 IMPROVED GEOLOCATION: Handles mobile timeouts better
     navigator.geolocation.getCurrentPosition(
       async (position) => {
         const { latitude, longitude } = position.coords;
 
-        // 1. 🟢 GEOFENCE VALIDATION
+        // 1. GEOFENCE VALIDATION
         if (officeLocation) {
           const distance = calculateDistance(
             latitude, longitude, 
@@ -77,56 +78,60 @@ export default function ScanPage() {
           const allowedRadius = rules.geofenceRadius || 200;
 
           if (distance > allowedRadius) {
-            toast.error(`Access Denied: You are ${Math.round(distance)}m away from the designated zone.`, { id: toastId });
+            toast.error(`Out of Bounds: You are ${Math.round(distance)}m away.`, { id: toastId });
             setIsProcessing(false);
             return;
           }
         }
 
         try {
-          // 2. 🟢 PUNCTUALITY LOGIC
+          // 2. PUNCTUALITY LOGIC (Fixed for edge cases)
           const now = new Date();
-          const [targetHour, targetMinute] = (rules.shiftStart || "09:00").split(":").map(Number);
+          const shiftTime = rules.shiftStart || "09:00";
+          const [targetHour, targetMinute] = shiftTime.split(":").map(Number);
           
           const deadline = new Date();
-          deadline.setHours(targetHour, targetMinute + (rules.gracePeriod || 0), 0);
+          deadline.setHours(targetHour, targetMinute + (Number(rules.gracePeriod) || 0), 0);
 
           const status = now > deadline ? "Late" : "On-Time";
 
-          // 3. 🟢 SAVE LOG TO FIREBASE
+          // 3. SAVE TO FIREBASE
           await addDoc(collection(db, "attendance_logs"), {
             businessId: businessId,
-            businessName: businessData.businessName || "Unknown Station",
+            businessName: businessData.businessName || "Unknown",
             userId: user.uid,
             userName: user.displayName || user.email.split('@')[0],
             userEmail: user.email,
             status: status,
             timestamp: serverTimestamp(),
             location: { lat: latitude, lng: longitude },
-            type: "QR_Scan"
+            type: "QR_Scan",
+            clientTime: now.toISOString()
           });
 
-          toast.success(`Success! Status: ${status}`, { id: toastId });
+          toast.success(`Clocked In: ${status}`, { id: toastId });
           
-          // Small delay for UX before taking them to their own history
-          setTimeout(() => navigate("/dashboard"), 2000);
+          setTimeout(() => navigate("/dashboard"), 1500);
         } catch (error) {
-          toast.error("Sync failed. Check connection.", { id: toastId });
+          console.error(error);
+          toast.error("Submission failed.", { id: toastId });
           setIsProcessing(false);
         }
       },
       (error) => {
-        toast.error("Please enable GPS permissions.", { id: toastId });
+        // Handle common GPS errors (User denied, Timeout, Signal lost)
+        const msg = error.code === 1 ? "Enable GPS permissions" : "GPS signal too weak";
+        toast.error(msg, { id: toastId });
         setIsProcessing(false);
       },
-      { enableHighAccuracy: true, timeout: 8000 }
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 } // 🟢 Increased timeout for mobile
     );
   };
 
   if (loadingBusiness) return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-slate-900">
       <Loader2 className="animate-spin text-blue-500 mb-4" size={40} />
-      <p className="text-white font-black text-[10px] tracking-[0.3em] uppercase">Validating QR...</p>
+      <p className="text-white font-black text-[10px] tracking-widest uppercase">Validating Terminal...</p>
     </div>
   );
 
@@ -135,58 +140,48 @@ export default function ScanPage() {
       <div className="w-24 h-24 bg-rose-50 text-rose-500 rounded-[2.5rem] flex items-center justify-center mb-6">
         <ShieldAlert size={48} />
       </div>
-      <h1 className="text-3xl font-black text-slate-900 tracking-tighter italic">Unauthorized Terminal</h1>
-      <p className="text-slate-400 mt-2 font-medium max-w-xs">This station has not been calibrated or the link has expired.</p>
+      <h1 className="text-3xl font-black text-slate-900 tracking-tighter italic">Invalid Terminal</h1>
+      <p className="text-slate-400 mt-2 font-medium max-w-xs">The QR code is invalid or the business profile is missing.</p>
     </div>
   );
 
   return (
-    <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6 selection:bg-blue-500">
+    <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-sm bg-white rounded-[3.5rem] p-10 shadow-2xl relative overflow-hidden">
         
-        {/* Background Decorative Element */}
-        <div className="absolute top-0 right-0 w-32 h-32 bg-blue-600/5 rounded-full -mr-16 -mt-16" />
-
-        <div className="mb-10 text-center relative z-10">
-          <div className="w-24 h-24 bg-slate-900 rounded-[2rem] mx-auto mb-6 flex items-center justify-center shadow-2xl p-1">
+        <div className="mb-10 text-center">
+          <div className="w-20 h-20 bg-slate-900 rounded-3xl mx-auto mb-6 flex items-center justify-center shadow-xl overflow-hidden">
              <img 
-              src={businessData?.photoURL || `https://ui-avatars.com/api/?name=${businessData?.businessName || 'B'}&background=0f172a&color=fff`} 
-              className="w-full h-full object-cover rounded-[1.8rem]"
-              alt="Business"
+              src={`https://ui-avatars.com/api/?name=${businessData?.businessName}&background=0f172a&color=fff&bold=true`} 
+              className="w-full h-full object-cover"
+              alt="Logo"
             />
           </div>
-          <h2 className="text-2xl font-black text-slate-900 tracking-tight">{businessData?.businessName}</h2>
-          <div className="inline-flex items-center gap-2 mt-2 px-3 py-1 bg-blue-50 rounded-full">
-            <Navigation size={10} className="text-blue-600 fill-blue-600" />
-            <span className="text-[9px] font-black uppercase tracking-widest text-blue-600">Active Perimeter Scan</span>
-          </div>
+          <h2 className="text-2xl font-black text-slate-900">{businessData?.businessName}</h2>
+          <span className="text-[10px] font-black uppercase tracking-widest text-blue-600 bg-blue-50 px-3 py-1 rounded-full mt-2 inline-block">
+            Secure Check-in
+          </span>
         </div>
 
-        <div className="bg-slate-50 rounded-[2.5rem] py-8 px-4 mb-10 border border-slate-100 text-center">
-          <Clock className="mx-auto mb-3 text-slate-300" size={24} />
-          <p className="text-4xl font-black text-slate-900 tracking-tighter leading-none mb-1">
+        <div className="bg-slate-50 rounded-[2.5rem] py-8 border border-slate-100 text-center mb-10">
+          <p className="text-4xl font-black text-slate-900 tracking-tighter">
             {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </p>
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Network Verified Time</p>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Local Station Time</p>
         </div>
 
         <button
           onClick={handleClockIn}
           disabled={isProcessing}
-          className={`group w-full py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.3em] transition-all flex items-center justify-center gap-3 shadow-2xl ${
-            isProcessing 
-            ? "bg-slate-100 text-slate-400 cursor-not-allowed" 
-            : "bg-slate-900 text-white hover:bg-black active:scale-95 shadow-slate-900/20"
-          }`}
+          className="w-full py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.2em] bg-slate-900 text-white hover:bg-black active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-3"
         >
-          {isProcessing ? "Authenticating..." : "Clock In Now"}
-          {!isProcessing && <CheckCircle size={20} className="group-hover:translate-x-1 transition-transform" />}
+          {isProcessing ? "Verifying..." : "Confirm Presence"}
+          {!isProcessing && <CheckCircle size={20} />}
         </button>
 
-        <div className="mt-8 flex flex-col items-center gap-1 opacity-40">
-           <MapPin size={14} className={isProcessing ? "animate-bounce text-blue-600" : "text-slate-400"} />
-           <p className="text-[8px] font-black uppercase tracking-[0.2em] text-slate-500">Encrypted GPS Handshake</p>
-        </div>
+        <p className="mt-8 text-[8px] font-black uppercase tracking-[0.2em] text-slate-400 text-center">
+          GPS Geofencing Protected
+        </p>
       </div>
     </div>
   );
