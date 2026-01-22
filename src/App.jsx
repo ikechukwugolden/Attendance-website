@@ -1,42 +1,63 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 
-// Pages
+// Pages & Components (Keep your existing imports...)
 import Login from "./pages/Login";
+import Register from "./pages/Register";
+import SetupBusiness from "./pages/SetupBusiness";
+import ScanPage from "./pages/ScanPage";
 import Dashboard from "./pages/Dashboard";
 import Employees from "./pages/Employees"; 
-import Logs from "./pages/Logs";           
-import Reports from "./pages/Reports";     
-import Settings from "./pages/Settings"; // Ensure you have this file or use a placeholder
-
-// Components
+import Logs from "./pages/Logs"; 
+import Reports from "./pages/Reports"; 
+import Settings from "./pages/Settings"; 
 import Layout from "./components/Layout";
 import { Toaster } from "react-hot-toast";
 
-// Loading Component
 const LoadingSpinner = () => (
   <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-50">
-    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
-    <p className="text-gray-500 font-medium tracking-tight">Verifying session...</p>
+    <div className="animate-spin rounded-[1.5rem] h-12 w-12 border-4 border-slate-200 border-t-blue-600 shadow-xl"></div>
+    <p className="mt-8 text-slate-900 font-black uppercase text-[10px] tracking-[0.3em]">Securing Connection</p>
   </div>
 );
 
-// Helper for Guest-only routes (Login)
+// 1. PUBLIC ROUTE FIX
 function PublicRoute({ children }) {
   const { user, loading } = useAuth();
   if (loading) return <LoadingSpinner />;
-  // If user is already logged in, send them to dashboard
+  // If logged in, send them to dashboard
   return !user ? children : <Navigate to="/dashboard" replace />;
 }
 
-// Helper for Authenticated-only routes
+// 2. PROTECTED ROUTE FIX (The logic you were missing)
 function ProtectedRoute({ children }) {
-  const { user, loading } = useAuth();
+  const { user, userData, loading } = useAuth(); // 🟢 Added userData here
+  const location = useLocation();
+  
   if (loading) return <LoadingSpinner />;
-  // If NO user, force redirect to Login
+  if (!user) return <Navigate to="/login" state={{ from: location }} replace />;
+  
+  // 🟢 CHECK FIRESTORE DATA: If setup isn't finished, force them to setup
+  if (userData && !userData.hasCompletedSetup) {
+    return <Navigate to="/setup-business" replace />;
+  }
+
+  return <Layout>{children}</Layout>;
+}
+
+// 3. AUTH ONLY ROUTE FIX (For the Setup page itself)
+function AuthOnlyRoute({ children }) {
+  const { user, userData, loading } = useAuth();
+  if (loading) return <LoadingSpinner />;
   if (!user) return <Navigate to="/login" replace />;
   
-  return <Layout>{children}</Layout>;
+  // If they've ALREADY finished setup and try to go to /setup-business, 
+  // send them back to the dashboard.
+  if (userData?.hasCompletedSetup && window.location.pathname === "/setup-business") {
+    return <Navigate to="/dashboard" replace />;
+  }
+  
+  return children;
 }
 
 export default function App() {
@@ -45,21 +66,21 @@ export default function App() {
       <Toaster position="top-right" />
       <Router>
         <Routes>
-          {/* 1. Public Authentication Route */}
           <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
+          <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
           
-          {/* 2. Protected App Routes */}
+          {/* Setup & Scan */}
+          <Route path="/setup-business" element={<AuthOnlyRoute><SetupBusiness /></AuthOnlyRoute>} />
+          <Route path="/scan" element={<AuthOnlyRoute><ScanPage /></AuthOnlyRoute>} />
+
+          {/* Main App */}
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/employees" element={<ProtectedRoute><Employees /></ProtectedRoute>} />
           <Route path="/logs" element={<ProtectedRoute><Logs /></ProtectedRoute>} />
           <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
 
-          {/* 3. Global Navigation Logic - FIXES THE REDIRECT ISSUE */}
-          {/* If path is exactly "/", try to go to dashboard (which will check auth) */}
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          
-          {/* If user hits an unknown page or logs out, go to LOGIN, not dashboard */}
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
       </Router>

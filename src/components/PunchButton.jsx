@@ -1,70 +1,98 @@
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { db } from "../lib/firebase";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { collection, addDoc, serverTimestamp, doc, getDoc } from "firebase/firestore";
+import { calculateAttendanceStatus } from "../services/shiftService"; // The service we updated earlier
 import toast from 'react-hot-toast';
-import { MapPin, Clock } from "lucide-react";
+import { MapPin, Clock, ShieldCheck, AlertCircle } from "lucide-react";
 
-export default function PunchButton() {
+export default function PunchButton({ businessId }) {
   const { user } = useAuth();
   const [isPunching, setIsPunching] = useState(false);
 
-  const triggerPunch = async () => {
-    if (!user) {
-      toast.error("You must be logged in to clock in.");
-      return;
-    }
+  // Helper: Haversine formula to calculate distance in meters
+  const getDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 6371e3; // Earth radius in meters
+    const φ1 = lat1 * Math.PI / 180;
+    const φ2 = lat2 * Math.PI / 180;
+    const Δφ = (lat2 - lat1) * Math.PI / 180;
+    const Δλ = (lon2 - lon1) * Math.PI / 180;
 
+    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+              Math.cos(φ1) * Math.cos(φ2) *
+              Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  };
+
+  const triggerPunch = async () => {
+    if (!user) return toast.error("Please login first");
     setIsPunching(true);
-    
-    // 1. Get GPS Location
+
     navigator.geolocation.getCurrentPosition(
       async (position) => {
-        const location = {
-          lat: position.coords.latitude,
-          lng: position.coords.longitude
-        };
+        const { latitude, longitude } = position.coords;
 
         try {
-          // 2. Logic for Status (On-Time vs Late)
-          // Example: Late if after 9:00 AM
-          const now = new Date();
-          const status = now.getHours() >= 9 ? "Late" : "On-Time";
+          // 1. Fetch Admin Settings for this business
+          const adminRef = doc(db, "users", businessId);
+          const adminSnap = await getDoc(adminRef);
+          
+          if (!adminSnap.exists()) throw new Error("Business not found");
+          const settings = adminSnap.data().settings;
 
-          // 3. Save to Firestore (attendance_logs collection)
+          // 2. GEOFENCING CHECK
+          const distance = getDistance(
+            latitude, longitude, 
+            settings.officeLocation.lat, settings.officeLocation.lng
+          );
+
+          if (distance > settings.radius) {
+            toast.error(`Out of range! You are ${Math.round(distance)}m away from the office.`);
+            setIsPunching(false);
+            return;
+          }
+
+          // 3. CALCULATE STATUS (Using our shared service)
+          const { status, minutesLate } = calculateAttendanceStatus(
+            new Date(), 
+            settings.shiftStart, 
+            settings.gracePeriod
+          );
+
+          // 4. LOG TO FIRESTORE
           await addDoc(collection(db, "attendance_logs"), {
+            businessId: businessId,
             userId: user.uid,
-            userName: user.displayName || user.email.split('@')[0], // Fallback if no displayName
-            department: user.department || "General",
+            userName: user.displayName || user.email.split('@')[0],
             status: status,
-            location: location,
-            timestamp: serverTimestamp(), // Ensures correct sorting in Logs page
-            type: "Check-In"
+            minutesLate: minutesLate,
+            location: { lat: latitude, lng: longitude },
+            timestamp: serverTimestamp(),
+            device: navigator.userAgent
           });
 
-          toast.success(`Success! Marked as ${status}`);
+          toast.success(`Clocked in! Status: ${status}`);
         } catch (error) {
           console.error(error);
-          toast.error("Database error. Please try again.");
+          toast.error("Process failed. Try again.");
         } finally {
           setIsPunching(false);
         }
       },
-      (error) => {
-        toast.error("Location access denied. GPS is required.");
+      (err) => {
+        toast.error("GPS access required to verify location.");
         setIsPunching(false);
       },
-      { enableHighAccuracy: true } // Better GPS precision
+      { enableHighAccuracy: true }
     );
   };
 
   return (
-    <div className="flex flex-col items-center gap-4">
-      {/* Visual Feedback Container */}
+    <div className="flex flex-col items-center gap-6">
       <div className="relative">
-        {/* Animated Background Pulse */}
         {!isPunching && (
-          <div className="absolute inset-0 bg-blue-400 rounded-full animate-ping opacity-20"></div>
+          <div className="absolute inset-0 bg-indigo-500 rounded-full animate-ping opacity-10"></div>
         )}
         
         <button
@@ -72,33 +100,39 @@ export default function PunchButton() {
           disabled={isPunching}
           className={`
             relative z-10 flex flex-col items-center justify-center
-            w-40 h-40 rounded-full font-bold shadow-2xl transition-all active:scale-95
+            w-48 h-48 rounded-[3rem] font-black shadow-2xl transition-all 
+            active:scale-90 active:rotate-2 group
             ${isPunching 
-              ? "bg-slate-100 text-slate-400 cursor-not-allowed" 
-              : "bg-gradient-to-br from-blue-600 to-indigo-700 text-white hover:shadow-blue-200"
+              ? "bg-slate-100 text-slate-400" 
+              : "bg-slate-900 text-white hover:bg-black"
             }
           `}
         >
           {isPunching ? (
-            <div className="flex flex-col items-center gap-2">
-              <div className="w-6 h-6 border-4 border-slate-300 border-t-blue-600 rounded-full animate-spin"></div>
-              <span className="text-xs uppercase tracking-tighter">Syncing...</span>
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-8 h-8 border-4 border-slate-300 border-t-indigo-500 rounded-full animate-spin"></div>
+              <span className="text-[10px] uppercase tracking-widest font-black">Verifying...</span>
             </div>
           ) : (
             <>
-              <Clock size={32} className="mb-2" />
-              <span className="text-lg">Clock In</span>
-              <div className="flex items-center gap-1 text-[10px] opacity-80 mt-1 font-normal">
-                <MapPin size={10} /> GPS Active
+              <div className="bg-indigo-500 p-3 rounded-2xl mb-3 group-hover:scale-110 transition-transform">
+                <ShieldCheck size={28} className="text-white" />
+              </div>
+              <span className="text-xl uppercase tracking-tight">Clock In</span>
+              <div className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest opacity-40 mt-2">
+                <MapPin size={10} /> Secure Zone
               </div>
             </>
           )}
         </button>
       </div>
       
-      <p className="text-slate-400 text-xs font-medium">
-        Location is verified automatically
-      </p>
+      <div className="flex items-center gap-2 px-4 py-2 bg-slate-50 rounded-full border border-slate-100">
+        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+        <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">
+          Geofencing Shield Active
+        </p>
+      </div>
     </div>
   );
 }

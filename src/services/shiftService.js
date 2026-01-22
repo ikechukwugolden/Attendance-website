@@ -1,21 +1,54 @@
 import { db } from "../lib/firebase";
-import { doc, getDoc, collection, getDocs } from "firebase/firestore";
+import { doc, getDoc } from "firebase/firestore";
 
-export const getShiftDetails = async (shiftId) => {
-  // Fetches shift rules: start_time, end_time, and grace_period
-  const shiftDoc = await getDoc(doc(db, "shifts", shiftId));
-  return shiftDoc.exists() ? shiftDoc.data() : null;
+/**
+ * Fetches shift rules for a specific business/admin
+ */
+export const getBusinessSettings = async (businessId) => {
+  try {
+    const docRef = doc(db, "users", businessId);
+    const docSnap = await getDoc(docRef);
+    
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      // Return settings or default values
+      return data.settings || {
+        shiftStart: "09:00",
+        gracePeriod: 5,
+        radius: 100
+      };
+    }
+    return null;
+  } catch (error) {
+    console.error("Error fetching business settings:", error);
+    return null;
+  }
 };
 
-export const checkAttendanceStatus = (checkInTime, shiftStart, gracePeriod) => {
-  const [sHours, sMinutes] = shiftStart.split(':').map(Number);
-  const checkTime = new Date(checkInTime);
+/**
+ * Calculates attendance status based on dynamic business rules
+ */
+export const calculateAttendanceStatus = (checkInDate, shiftStartStr, graceMinutes) => {
+  // 1. Parse Shift Start (HH:mm)
+  const [sHours, sMinutes] = shiftStartStr.split(':').map(Number);
   
-  const startTime = new Date(checkTime);
-  startTime.setHours(sHours, sMinutes, 0, 0);
+  // 2. Create a Date object for the "Deadline" on the same day as check-in
+  const deadline = new Date(checkInDate);
+  deadline.setHours(sHours, sMinutes, 0, 0);
 
-  // Apply the 5-min grace period logic from your proposal
-  const graceThreshold = new Date(startTime.getTime() + gracePeriod * 60000);
+  // 3. Add the grace period
+  const graceThreshold = new Date(deadline.getTime() + (graceMinutes * 60000));
   
-  return checkTime <= graceThreshold ? "On-Time" : "Late";
+  // 4. Determine Status
+  const isLate = checkInDate > graceThreshold;
+  
+  // 5. Optional: Calculate minutes late for better reporting
+  const diffMs = checkInDate - deadline;
+  const minutesLate = Math.max(0, Math.floor(diffMs / 60000));
+
+  return {
+    status: isLate ? "Late" : "On-Time",
+    minutesLate: isLate ? minutesLate : 0,
+    threshold: graceThreshold.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  };
 };
