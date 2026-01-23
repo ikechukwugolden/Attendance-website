@@ -1,105 +1,121 @@
 import { useState } from "react";
 import { auth, db } from "../lib/firebase";
-import { createUserWithEmailAndPassword } from "firebase/auth";
-import { doc, setDoc } from "firebase/firestore";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import { Briefcase, Users, ArrowRight } from "lucide-react";
-import toast from "react-hot-toast";
+import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
+import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { useNavigate, Link } from "react-router-dom";
+import { toast } from "react-hot-toast";
 
 export default function Register() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const inviteId = searchParams.get("invite"); // Captures the Admin UID if present
-
-  const [role, setRole] = useState(inviteId ? "staff" : "admin");
+  const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
+    fullName: "",
     email: "",
     password: "",
-    fullName: "",
   });
-  const [loading, setLoading] = useState(false);
 
   const handleRegister = async (e) => {
     e.preventDefault();
-    setLoading(true);
+    setIsLoading(true);
 
     try {
-      const res = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
-      
-      // 🟢 Store User in Firestore
-      await setDoc(doc(db, "users", res.user.uid), {
-        uid: res.user.uid,
+      // 1. Create User in Firebase Auth
+      const { user } = await createUserWithEmailAndPassword(
+        auth, 
+        formData.email, 
+        formData.password
+      );
+
+      // 2. Update Auth Profile (Display Name)
+      await updateProfile(user, { displayName: formData.fullName });
+
+      // 3. 🟢 THE MOST IMPORTANT PART: Create Firestore Document
+      // This tells the app: "This user is an ADMIN who needs to SETUP their business"
+      await setDoc(doc(db, "users", user.uid), {
+        uid: user.uid,
+        fullName: formData.fullName,
         email: formData.email,
-        displayName: formData.fullName,
-        role: role,
-        businessId: role === "staff" ? inviteId : null, // Links staff to admin
-        createdAt: new Date(),
+        role: "admin", // Sets them as the boss
+        hasCompletedSetup: false, // Triggers the /setup-business page
+        createdAt: serverTimestamp(),
       });
 
-      toast.success("Account Created!");
-      
-      // Redirect based on role
-      if (role === "admin") {
-        navigate("/setup-business");
-      } else {
-        navigate("/dashboard");
-      }
-    } catch (err) {
-      toast.error(err.message);
+      toast.success("Account created! Let's calibrate your station.");
+      navigate("/setup-business");
+    } catch (error) {
+      console.error(error);
+      toast.error(error.message || "Registration failed");
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
-      <div className="w-full max-w-md bg-white rounded-[2.5rem] p-10 shadow-2xl border border-slate-100">
-        <h2 className="text-3xl font-black text-slate-800 text-center mb-2">Join Attendly</h2>
-        <p className="text-slate-400 text-center text-sm font-medium mb-8">Start tracking with precision.</p>
-
-        {/* ROLE SWITCHER - Only show if no invite link is present */}
-        {!inviteId && (
-          <div className="flex p-1 bg-slate-100 rounded-2xl mb-8">
-            <button 
-              onClick={() => setRole("admin")}
-              className={`flex-1 flex items-center justify-center gap-2 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${role === 'admin' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400'}`}
-            >
-              <Briefcase size={14} /> Admin
-            </button>
-            <button 
-              onClick={() => setRole("staff")}
-              className={`flex-1 flex items-center justify-center gap-2 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${role === 'staff' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400'}`}
-            >
-              <Users size={14} /> Staff
-            </button>
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans">
+      <div className="flex w-full max-w-4xl bg-white rounded-[2.5rem] shadow-2xl overflow-hidden border border-slate-100">
+        
+        {/* LEFT: FORM SIDE */}
+        <div className="w-full lg:w-[45%] p-8 md:p-12 flex flex-col justify-center">
+          <div className="flex items-center gap-2 mb-8">
+            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold">A</div>
+            <span className="font-bold text-xl tracking-tight">Attendly</span>
           </div>
-        )}
 
-        <form onSubmit={handleRegister} className="space-y-4">
-          <input 
-            type="text" placeholder="Full Name" required
-            className="w-full px-5 py-4 bg-slate-50 rounded-2xl outline-none focus:ring-2 focus:ring-blue-500 font-medium"
-            onChange={(e) => setFormData({...formData, fullName: e.target.value})}
-          />
-          <input 
-            type="email" placeholder="Email Address" required
-            className="w-full px-5 py-4 bg-slate-50 rounded-2xl outline-none focus:ring-2 focus:ring-blue-500 font-medium"
-            onChange={(e) => setFormData({...formData, email: e.target.value})}
-          />
-          <input 
-            type="password" placeholder="Password" required
-            className="w-full px-5 py-4 bg-slate-50 rounded-2xl outline-none focus:ring-2 focus:ring-blue-500 font-medium"
-            onChange={(e) => setFormData({...formData, password: e.target.value})}
-          />
+          <h2 className="text-2xl font-black text-slate-800 mb-2">Create Admin Account</h2>
+          <p className="text-slate-500 text-sm mb-8 font-medium">Start managing your team today.</p>
 
-          <button 
-            disabled={loading}
-            className="w-full bg-slate-900 text-white font-black py-5 rounded-[2rem] flex items-center justify-center gap-2 hover:bg-blue-600 transition-all shadow-xl disabled:opacity-50"
-          >
-            {loading ? "Creating..." : "Create Account"}
-            <ArrowRight size={18} />
-          </button>
-        </form>
+          <form onSubmit={handleRegister} className="space-y-4">
+            <input 
+              type="text" 
+              placeholder="Full Name" 
+              className="w-full px-5 py-4 rounded-2xl bg-slate-50 border-none focus:ring-2 focus:ring-blue-500 outline-none transition-all text-sm font-bold text-slate-700" 
+              onChange={(e) => setFormData({...formData, fullName: e.target.value})} 
+              required 
+            />
+            <input 
+              type="email" 
+              placeholder="Business Email" 
+              className="w-full px-5 py-4 rounded-2xl bg-slate-50 border-none focus:ring-2 focus:ring-blue-500 outline-none transition-all text-sm font-bold text-slate-700" 
+              onChange={(e) => setFormData({...formData, email: e.target.value})} 
+              required 
+            />
+            <input 
+              type="password" 
+              placeholder="Create Password" 
+              className="w-full px-5 py-4 rounded-2xl bg-slate-50 border-none focus:ring-2 focus:ring-blue-500 outline-none transition-all text-sm font-bold text-slate-700" 
+              onChange={(e) => setFormData({...formData, password: e.target.value})} 
+              required 
+            />
+
+            <button 
+              disabled={isLoading} 
+              className="w-full mt-4 bg-blue-600 hover:bg-slate-900 text-white font-black py-5 rounded-[2rem] transition-all shadow-xl disabled:opacity-50 uppercase text-xs tracking-[0.2em]"
+            >
+              {isLoading ? "Creating Station..." : "Get Started"}
+            </button>
+          </form>
+
+          <p className="mt-8 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest">
+            Already have a station? <Link to="/login" className="text-blue-600 hover:underline">Sign In</Link>
+          </p>
+        </div>
+
+        {/* RIGHT: IMAGE SIDE */}
+        <div className="hidden lg:block lg:w-[55%] relative overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-br from-blue-600/90 to-indigo-900/90 z-10"></div>
+          <img 
+            src="https://images.unsplash.com/photo-1551434678-e076c223a692?auto=format&fit=crop&w=1200&q=80" 
+            className="absolute inset-0 w-full h-full object-cover"
+          />
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-12 text-center">
+            <div className="bg-white/10 backdrop-blur-xl border border-white/20 p-10 rounded-[3rem] max-w-sm">
+              <h3 className="text-2xl font-black text-white mb-4 tracking-tighter">One QR. One Team.</h3>
+              <p className="text-blue-100 text-xs font-medium uppercase tracking-widest opacity-80 leading-relaxed">
+                Automate your attendance flow in minutes.
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

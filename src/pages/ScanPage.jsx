@@ -3,7 +3,7 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import { db } from "../lib/firebase";
 import { collection, addDoc, serverTimestamp, doc, getDoc } from "firebase/firestore";
 import { useAuth } from "../context/AuthContext";
-import { MapPin, Clock, CheckCircle, ShieldAlert, Loader2, Navigation } from "lucide-react";
+import { CheckCircle, ShieldAlert, Loader2 } from "lucide-react";
 import toast from "react-hot-toast";
 
 export default function ScanPage() {
@@ -14,12 +14,12 @@ export default function ScanPage() {
   const [businessData, setBusinessData] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [loadingBusiness, setLoadingBusiness] = useState(true);
+  const [isSuccess, setIsSuccess] = useState(false); // 🟢 Added Success State
   
   const businessId = searchParams.get("bid");
 
-  // Haversine Formula for distance
   const calculateDistance = (lat1, lon1, lat2, lon2) => {
-    const R = 6371e3; // Earth's radius in meters
+    const R = 6371e3; 
     const dLat = (lat2 - lat1) * (Math.PI / 180);
     const dLon = (lon2 - lon1) * (Math.PI / 180);
     const a = 
@@ -63,12 +63,10 @@ export default function ScanPage() {
     const rules = businessData?.settings || {};
     const officeLocation = rules.location; 
 
-    // 🟢 IMPROVED GEOLOCATION: Handles mobile timeouts better
     navigator.geolocation.getCurrentPosition(
       async (position) => {
         const { latitude, longitude } = position.coords;
 
-        // 1. GEOFENCE VALIDATION
         if (officeLocation) {
           const distance = calculateDistance(
             latitude, longitude, 
@@ -85,7 +83,6 @@ export default function ScanPage() {
         }
 
         try {
-          // 2. PUNCTUALITY LOGIC (Fixed for edge cases)
           const now = new Date();
           const shiftTime = rules.shiftStart || "09:00";
           const [targetHour, targetMinute] = shiftTime.split(":").map(Number);
@@ -95,23 +92,27 @@ export default function ScanPage() {
 
           const status = now > deadline ? "Late" : "On-Time";
 
-          // 3. SAVE TO FIREBASE
+          // 🟢 SAFETY CHECK: Ensure we have a valid name to save
+          const displayName = user.displayName || (user.email ? user.email.split('@')[0] : "Anonymous Staff");
+
           await addDoc(collection(db, "attendance_logs"), {
             businessId: businessId,
             businessName: businessData.businessName || "Unknown",
             userId: user.uid,
-            userName: user.displayName || user.email.split('@')[0],
+            userName: displayName,
             userEmail: user.email,
             status: status,
             timestamp: serverTimestamp(),
             location: { lat: latitude, lng: longitude },
+            distanceFromOffice: officeLocation ? calculateDistance(latitude, longitude, officeLocation.lat, officeLocation.lng) : 0,
             type: "QR_Scan",
             clientTime: now.toISOString()
           });
 
+          setIsSuccess(true); // 🟢 Trigger Success Screen
           toast.success(`Clocked In: ${status}`, { id: toastId });
           
-          setTimeout(() => navigate("/dashboard"), 1500);
+          setTimeout(() => navigate("/dashboard"), 3000);
         } catch (error) {
           console.error(error);
           toast.error("Submission failed.", { id: toastId });
@@ -119,14 +120,27 @@ export default function ScanPage() {
         }
       },
       (error) => {
-        // Handle common GPS errors (User denied, Timeout, Signal lost)
         const msg = error.code === 1 ? "Enable GPS permissions" : "GPS signal too weak";
         toast.error(msg, { id: toastId });
         setIsProcessing(false);
       },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 } // 🟢 Increased timeout for mobile
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 } 
     );
   };
+
+  // 🟢 NEW SUCCESS VIEW
+  if (isSuccess) {
+    return (
+      <div className="min-h-screen bg-emerald-500 flex flex-col items-center justify-center p-6 text-white text-center">
+        <div className="w-24 h-24 bg-white/20 rounded-[3rem] flex items-center justify-center mb-6 animate-bounce">
+          <CheckCircle size={48} />
+        </div>
+        <h1 className="text-4xl font-black tracking-tighter italic">Verified!</h1>
+        <p className="mt-2 font-bold uppercase text-[10px] tracking-widest opacity-80">Presence Logged Successfully</p>
+        <p className="mt-8 text-white/60 text-[10px] font-medium uppercase tracking-[0.2em]">Redirecting to Dashboard...</p>
+      </div>
+    );
+  }
 
   if (loadingBusiness) return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-slate-900">
@@ -148,7 +162,6 @@ export default function ScanPage() {
   return (
     <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-sm bg-white rounded-[3.5rem] p-10 shadow-2xl relative overflow-hidden">
-        
         <div className="mb-10 text-center">
           <div className="w-20 h-20 bg-slate-900 rounded-3xl mx-auto mb-6 flex items-center justify-center shadow-xl overflow-hidden">
              <img 

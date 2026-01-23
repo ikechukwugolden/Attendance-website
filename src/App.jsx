@@ -1,7 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 
-// Pages & Components (Keep your existing imports...)
+// Pages & Components
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import SetupBusiness from "./pages/SetupBusiness";
@@ -21,23 +21,21 @@ const LoadingSpinner = () => (
   </div>
 );
 
-// 1. PUBLIC ROUTE FIX
+// 1. PUBLIC ROUTE: If logged in, go to dashboard. If not, show the page (Register/Login).
 function PublicRoute({ children }) {
   const { user, loading } = useAuth();
   if (loading) return <LoadingSpinner />;
-  // If logged in, send them to dashboard
   return !user ? children : <Navigate to="/dashboard" replace />;
 }
 
-// 2. PROTECTED ROUTE FIX (The logic you were missing)
+// 2. PROTECTED ROUTE: Requires Auth + Completed Setup
 function ProtectedRoute({ children }) {
-  const { user, userData, loading } = useAuth(); // 🟢 Added userData here
+  const { user, userData, loading } = useAuth();
   const location = useLocation();
   
   if (loading) return <LoadingSpinner />;
-  if (!user) return <Navigate to="/login" state={{ from: location }} replace />;
+  if (!user) return <Navigate to="/register" state={{ from: location }} replace />;
   
-  // 🟢 CHECK FIRESTORE DATA: If setup isn't finished, force them to setup
   if (userData && !userData.hasCompletedSetup) {
     return <Navigate to="/setup-business" replace />;
   }
@@ -45,14 +43,12 @@ function ProtectedRoute({ children }) {
   return <Layout>{children}</Layout>;
 }
 
-// 3. AUTH ONLY ROUTE FIX (For the Setup page itself)
+// 3. AUTH ONLY ROUTE: For the Setup page itself
 function AuthOnlyRoute({ children }) {
   const { user, userData, loading } = useAuth();
   if (loading) return <LoadingSpinner />;
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user) return <Navigate to="/register" replace />;
   
-  // If they've ALREADY finished setup and try to go to /setup-business, 
-  // send them back to the dashboard.
   if (userData?.hasCompletedSetup && window.location.pathname === "/setup-business") {
     return <Navigate to="/dashboard" replace />;
   }
@@ -66,22 +62,26 @@ export default function App() {
       <Toaster position="top-right" />
       <Router>
         <Routes>
+          {/* Public Auth Pages */}
           <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
           <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
           
-          {/* Setup & Scan */}
-          <Route path="/setup-business" element={<AuthOnlyRoute><SetupBusiness /></AuthOnlyRoute>} />
-          <Route path="/scan" element={<AuthOnlyRoute><ScanPage /></AuthOnlyRoute>} />
+          {/* Public Scan Page (No Auth required so staff can scan) */}
+          <Route path="/scan" element={<ScanPage />} />
 
-          {/* Main App */}
+          {/* Admin Setup Flow */}
+          <Route path="/setup-business" element={<AuthOnlyRoute><SetupBusiness /></AuthOnlyRoute>} />
+
+          {/* Protected Dashboard & Management */}
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/employees" element={<ProtectedRoute><Employees /></ProtectedRoute>} />
           <Route path="/logs" element={<ProtectedRoute><Logs /></ProtectedRoute>} />
           <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
 
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="*" element={<Navigate to="/login" replace />} />
+          {/*  REDIRECTION FIX: Default to Register */}
+          <Route path="/" element={<Navigate to="/register" replace />} />
+          <Route path="*" element={<Navigate to="/register" replace />} />
         </Routes>
       </Router>
     </AuthProvider>
