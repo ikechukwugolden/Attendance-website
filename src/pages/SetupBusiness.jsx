@@ -1,13 +1,13 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { MapPin, Clock, ShieldCheck, ArrowRight, Navigation } from "lucide-react";
+import { MapPin, Clock, ShieldCheck, ArrowRight, Navigation, Camera, UploadCloud } from "lucide-react";
 import { db, auth } from "../lib/firebase";
-import { doc, setDoc } from "firebase/firestore";
+import { doc, setDoc, writeBatch } from "firebase/firestore"; // 🟢 Added writeBatch
 import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import toast from "react-hot-toast";
 
-// 🟢 Helper to fix the Leaflet "Grey Box" bug when switching steps
+// Helper to fix the Leaflet "Grey Box" bug
 function MapRecenter({ coords }) {
   const map = useMap();
   useEffect(() => {
@@ -32,9 +32,25 @@ export default function SetupBusiness() {
   const [loading, setLoading] = useState(false);
   
   const [businessName, setBusinessName] = useState("");
+  const [businessLogo, setBusinessLogo] = useState(null); 
   const [shiftStart, setShiftStart] = useState("09:00");
   const [gracePeriod, setGracePeriod] = useState(15);
   const [coords, setCoords] = useState({ lat: 6.5244, lng: 3.3792 });
+
+  const handlePhotoUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      if (file.size > 1048487) { 
+        return toast.error("Image too large. Please use a file under 1MB.");
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setBusinessLogo(reader.result);
+        toast.success("Logo uploaded!");
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   const handleCompleteSetup = async () => {
     if (!businessName) return toast.error("Business name is required");
@@ -42,26 +58,34 @@ export default function SetupBusiness() {
     setLoading(true);
     try {
       const user = auth.currentUser;
-      const businessData = {
-        businessName,
-        settings: {
-          shiftStart,
-          gracePeriod: Number(gracePeriod),
-          location: coords,
-          geofenceRadius: 200, 
-        },
-        hasCompletedSetup: true, // 👈 Flag for App.jsx
-        updatedAt: new Date(),
-      };
+      if (!user) throw new Error("No authenticated user found");
 
-      // 1. Save to Firestore
+      // 🟢 ATOMIC UPDATE: We use a batch to update two places at once
+      const batch = writeBatch(db);
+
+      // 1. Update 'users' collection with basic info
       const userRef = doc(db, "users", user.uid);
-      await setDoc(userRef, businessData, { merge: true });
+      batch.set(userRef, {
+        businessName,
+        businessLogo, 
+        hasCompletedSetup: true,
+        updatedAt: new Date(),
+      }, { merge: true });
+
+      // 2. Update 'business_settings' collection for the ScanPage to find GPS/Rules
+      const settingsRef = doc(db, "business_settings", user.uid);
+      batch.set(settingsRef, {
+        location: coords,
+        shiftStart,
+        gracePeriod: Number(gracePeriod),
+        geofenceRadius: 200, // Default 200 meters
+        updatedAt: new Date(),
+      }, { merge: true });
+
+      await batch.commit();
       
       toast.success("System calibrated!");
 
-      // 2. 🟢 THE FIX: Forced Navigation & State Sync Delay
-      // We wait 800ms for Firebase to propagate the change so the Dashboard doesn't bounce you back
       setTimeout(() => {
         navigate("/dashboard", { replace: true });
       }, 800);
@@ -92,9 +116,9 @@ export default function SetupBusiness() {
             <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center mb-8">
               <ShieldCheck size={28} />
             </div>
-            <h1 className="text-3xl font-black tracking-tighter italic mb-4">Initial Calibration</h1>
+            <h1 className="text-3xl font-black tracking-tighter italic mb-4">Calibration</h1>
             <p className="text-blue-100 text-sm font-medium leading-relaxed">
-              Define your office boundaries and work hours to enable precision geofencing.
+              Define your office boundaries, upload your logo, and set work hours.
             </p>
           </div>
 
@@ -116,9 +140,24 @@ export default function SetupBusiness() {
         <div className="flex-1 p-10 md:p-16 flex flex-col justify-center">
           
           {step === 1 && (
-            <div className="animate-in fade-in slide-in-from-right-4 duration-500">
-              <h2 className="text-2xl font-black text-slate-900 mb-2">Business Identity</h2>
-              <p className="text-slate-400 text-sm mb-8">What should staff see on their terminals?</p>
+            <div className="animate-in fade-in slide-in-from-right-4 duration-500 flex flex-col items-center">
+              <h2 className="text-2xl font-black text-slate-900 mb-2 self-start">Business Identity</h2>
+              <p className="text-slate-400 text-sm mb-8 self-start">Set your name and brand logo.</p>
+              
+              <div className="relative group mb-8">
+                <div className="w-32 h-32 bg-slate-100 rounded-[2.5rem] border-4 border-slate-50 overflow-hidden flex items-center justify-center shadow-inner transition-all group-hover:border-blue-100">
+                  {businessLogo ? (
+                    <img src={businessLogo} alt="Logo Preview" className="w-full h-full object-cover" />
+                  ) : (
+                    <UploadCloud className="text-slate-300" size={40} />
+                  )}
+                </div>
+                <label className="absolute -bottom-2 -right-2 w-10 h-10 bg-blue-600 text-white rounded-xl flex items-center justify-center cursor-pointer shadow-lg hover:bg-slate-900 transition-all">
+                  <Camera size={20} />
+                  <input type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
+                </label>
+              </div>
+
               <input 
                 type="text" 
                 placeholder="e.g. Nexa Digital Hub"
@@ -126,7 +165,7 @@ export default function SetupBusiness() {
                 value={businessName}
                 onChange={(e) => setBusinessName(e.target.value)}
               />
-              <button onClick={() => setStep(2)} className="mt-8 w-full py-5 bg-slate-900 text-white rounded-2xl font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:bg-black transition-all">
+              <button onClick={() => setStep(2)} className="mt-8 w-full py-5 bg-slate-900 text-white rounded-2xl font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:bg-black transition-all shadow-xl shadow-slate-200">
                 Next <ArrowRight size={18} />
               </button>
             </div>
@@ -141,7 +180,7 @@ export default function SetupBusiness() {
                 </button>
               </div>
               
-              <div className="h-64 rounded-2xl overflow-hidden border-4 border-slate-50 mb-6 z-10">
+              <div className="h-64 rounded-2xl overflow-hidden border-4 border-slate-50 mb-6 z-10 shadow-inner">
                 <MapContainer center={[coords.lat, coords.lng]} zoom={13} style={{ height: '100%', width: '100%' }}>
                   <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
                   <Marker position={[coords.lat, coords.lng]} />
@@ -152,7 +191,7 @@ export default function SetupBusiness() {
               
               <div className="flex gap-4 mt-8">
                 <button onClick={() => setStep(1)} className="flex-1 py-5 bg-slate-100 text-slate-600 rounded-2xl font-black uppercase tracking-widest">Back</button>
-                <button onClick={() => setStep(3)} className="flex-[2] py-5 bg-slate-900 text-white rounded-2xl font-black uppercase tracking-widest">Continue</button>
+                <button onClick={() => setStep(3)} className="flex-[2] py-5 bg-slate-900 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-slate-200">Continue</button>
               </div>
             </div>
           )}
@@ -186,13 +225,16 @@ export default function SetupBusiness() {
                 </div>
               </div>
 
-              <button 
-                onClick={handleCompleteSetup}
-                disabled={loading}
-                className="mt-12 w-full py-5 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest hover:bg-blue-700 shadow-xl shadow-blue-200 transition-all flex items-center justify-center disabled:opacity-50"
-              >
-                {loading ? "Saving Config..." : "Finalize & Launch"}
-              </button>
+              <div className="flex gap-4 mt-12">
+                <button onClick={() => setStep(2)} className="flex-1 py-5 bg-slate-100 text-slate-600 rounded-2xl font-black uppercase tracking-widest">Back</button>
+                <button 
+                  onClick={handleCompleteSetup}
+                  disabled={loading}
+                  className="flex-[2] py-5 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest hover:bg-blue-700 shadow-xl shadow-blue-200 transition-all flex items-center justify-center disabled:opacity-50"
+                >
+                  {loading ? "Saving Config..." : "Finalize & Launch"}
+                </button>
+              </div>
             </div>
           )}
 
