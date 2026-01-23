@@ -14,7 +14,7 @@ export default function ScanPage() {
   const [businessData, setBusinessData] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [loadingBusiness, setLoadingBusiness] = useState(true);
-  const [isSuccess, setIsSuccess] = useState(false); // 🟢 Added Success State
+  const [isSuccess, setIsSuccess] = useState(false); 
   
   const businessId = searchParams.get("bid");
 
@@ -30,25 +30,38 @@ export default function ScanPage() {
   };
 
   useEffect(() => {
-    async function fetchBusiness() {
+    async function fetchCompleteBusinessProfile() {
       if (!businessId) {
         setLoadingBusiness(false);
         return;
       }
       try {
-        const docRef = doc(db, "users", businessId);
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          setBusinessData(docSnap.data());
+        // 🟢 FETCH 1: Get Business Name from 'users'
+        const userRef = doc(db, "users", businessId);
+        const userSnap = await getDoc(userRef);
+        
+        // 🟢 FETCH 2: Get GPS/Rules from 'business_settings'
+        const settingsRef = doc(db, "business_settings", businessId);
+        const settingsSnap = await getDoc(settingsRef);
+
+        if (userSnap.exists()) {
+          const profile = userSnap.data();
+          const settings = settingsSnap.exists() ? settingsSnap.data() : {};
+          
+          // Merge them: settings now contains location, radius, etc.
+          setBusinessData({
+            ...profile,
+            settings: settings 
+          });
         }
       } catch (err) {
         console.error("Fetch Error:", err);
-        toast.error("Database connection lost");
+        toast.error("Security handshake failed");
       } finally {
         setLoadingBusiness(false);
       }
     }
-    fetchBusiness();
+    fetchCompleteBusinessProfile();
   }, [businessId]);
 
   const handleClockIn = async () => {
@@ -58,8 +71,9 @@ export default function ScanPage() {
     }
     
     setIsProcessing(true);
-    const toastId = toast.loading("Verifying security perimeter...");
+    const toastId = toast.loading("Verifying location...");
 
+    // Access merged settings
     const rules = businessData?.settings || {};
     const officeLocation = rules.location; 
 
@@ -86,18 +100,15 @@ export default function ScanPage() {
           const now = new Date();
           const shiftTime = rules.shiftStart || "09:00";
           const [targetHour, targetMinute] = shiftTime.split(":").map(Number);
-          
           const deadline = new Date();
           deadline.setHours(targetHour, targetMinute + (Number(rules.gracePeriod) || 0), 0);
 
           const status = now > deadline ? "Late" : "On-Time";
-
-          // 🟢 SAFETY CHECK: Ensure we have a valid name to save
-          const displayName = user.displayName || (user.email ? user.email.split('@')[0] : "Anonymous Staff");
+          const displayName = user.displayName || (user.email ? user.email.split('@')[0] : "Staff");
 
           await addDoc(collection(db, "attendance_logs"), {
             businessId: businessId,
-            businessName: businessData.businessName || "Unknown",
+            businessName: businessData.businessName || "Unknown Business",
             userId: user.uid,
             userName: displayName,
             userEmail: user.email,
@@ -109,35 +120,30 @@ export default function ScanPage() {
             clientTime: now.toISOString()
           });
 
-          setIsSuccess(true); // 🟢 Trigger Success Screen
-          toast.success(`Clocked In: ${status}`, { id: toastId });
-          
+          setIsSuccess(true); 
+          toast.success(`Success: ${status}`, { id: toastId });
           setTimeout(() => navigate("/dashboard"), 3000);
         } catch (error) {
-          console.error(error);
-          toast.error("Submission failed.", { id: toastId });
+          toast.error("Submission error", { id: toastId });
           setIsProcessing(false);
         }
       },
       (error) => {
-        const msg = error.code === 1 ? "Enable GPS permissions" : "GPS signal too weak";
-        toast.error(msg, { id: toastId });
+        toast.error("Enable GPS to continue", { id: toastId });
         setIsProcessing(false);
       },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 } 
+      { enableHighAccuracy: true, timeout: 10000 } 
     );
   };
 
-  // 🟢 NEW SUCCESS VIEW
+  // --- UI Renders ---
+
   if (isSuccess) {
     return (
       <div className="min-h-screen bg-emerald-500 flex flex-col items-center justify-center p-6 text-white text-center">
-        <div className="w-24 h-24 bg-white/20 rounded-[3rem] flex items-center justify-center mb-6 animate-bounce">
-          <CheckCircle size={48} />
-        </div>
-        <h1 className="text-4xl font-black tracking-tighter italic">Verified!</h1>
-        <p className="mt-2 font-bold uppercase text-[10px] tracking-widest opacity-80">Presence Logged Successfully</p>
-        <p className="mt-8 text-white/60 text-[10px] font-medium uppercase tracking-[0.2em]">Redirecting to Dashboard...</p>
+        <CheckCircle size={60} className="mb-4 animate-bounce" />
+        <h1 className="text-4xl font-black italic">Verified!</h1>
+        <p className="mt-2 text-sm uppercase tracking-widest opacity-80">Log saved successfully</p>
       </div>
     );
   }
@@ -149,30 +155,28 @@ export default function ScanPage() {
     </div>
   );
 
-  if (!businessId || !businessData) return (
+  if (!businessData) return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-white text-center">
-      <div className="w-24 h-24 bg-rose-50 text-rose-500 rounded-[2.5rem] flex items-center justify-center mb-6">
-        <ShieldAlert size={48} />
-      </div>
-      <h1 className="text-3xl font-black text-slate-900 tracking-tighter italic">Invalid Terminal</h1>
-      <p className="text-slate-400 mt-2 font-medium max-w-xs">The QR code is invalid or the business profile is missing.</p>
+      <ShieldAlert size={64} className="text-rose-500 mb-4" />
+      <h1 className="text-3xl font-black text-slate-900 italic">Invalid Terminal</h1>
+      <p className="text-slate-400 mt-2 max-w-xs">The QR link is broken or the business profile is not configured.</p>
     </div>
   );
 
   return (
     <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6">
-      <div className="w-full max-w-sm bg-white rounded-[3.5rem] p-10 shadow-2xl relative overflow-hidden">
+      <div className="w-full max-w-sm bg-white rounded-[3.5rem] p-10 shadow-2xl">
         <div className="mb-10 text-center">
-          <div className="w-20 h-20 bg-slate-900 rounded-3xl mx-auto mb-6 flex items-center justify-center shadow-xl overflow-hidden">
+          <div className="w-20 h-20 bg-slate-900 rounded-3xl mx-auto mb-6 flex items-center justify-center shadow-xl">
              <img 
               src={`https://ui-avatars.com/api/?name=${businessData?.businessName}&background=0f172a&color=fff&bold=true`} 
-              className="w-full h-full object-cover"
+              className="w-full h-full rounded-3xl"
               alt="Logo"
             />
           </div>
           <h2 className="text-2xl font-black text-slate-900">{businessData?.businessName}</h2>
           <span className="text-[10px] font-black uppercase tracking-widest text-blue-600 bg-blue-50 px-3 py-1 rounded-full mt-2 inline-block">
-            Secure Check-in
+            Secure Terminal
           </span>
         </div>
 
@@ -180,21 +184,16 @@ export default function ScanPage() {
           <p className="text-4xl font-black text-slate-900 tracking-tighter">
             {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </p>
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Local Station Time</p>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Local Time</p>
         </div>
 
         <button
           onClick={handleClockIn}
           disabled={isProcessing}
-          className="w-full py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.2em] bg-slate-900 text-white hover:bg-black active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-3"
+          className="w-full py-6 rounded-[2rem] font-black text-xs uppercase tracking-[0.2em] bg-slate-900 text-white hover:bg-black active:scale-95 transition-all disabled:opacity-50"
         >
           {isProcessing ? "Verifying..." : "Confirm Presence"}
-          {!isProcessing && <CheckCircle size={20} />}
         </button>
-
-        <p className="mt-8 text-[8px] font-black uppercase tracking-[0.2em] text-slate-400 text-center">
-          GPS Geofencing Protected
-        </p>
       </div>
     </div>
   );
