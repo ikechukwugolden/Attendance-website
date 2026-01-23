@@ -36,9 +36,11 @@ export default function ScanPage() {
         return;
       }
       try {
+        // 🟢 FETCH 1: Get Business Name from 'users'
         const userRef = doc(db, "users", businessId);
         const userSnap = await getDoc(userRef);
         
+        // 🟢 FETCH 2: Get GPS/Rules from 'business_settings'
         const settingsRef = doc(db, "business_settings", businessId);
         const settingsSnap = await getDoc(settingsRef);
 
@@ -46,6 +48,7 @@ export default function ScanPage() {
           const profile = userSnap.data();
           const settings = settingsSnap.exists() ? settingsSnap.data() : {};
           
+          // Merge them: settings now contains location, radius, etc.
           setBusinessData({
             ...profile,
             settings: settings 
@@ -70,6 +73,7 @@ export default function ScanPage() {
     setIsProcessing(true);
     const toastId = toast.loading("Verifying location...");
 
+    // Access merged settings
     const rules = businessData?.settings || {};
     const officeLocation = rules.location; 
 
@@ -102,10 +106,9 @@ export default function ScanPage() {
           const status = now > deadline ? "Late" : "On-Time";
           const displayName = user.displayName || (user.email ? user.email.split('@')[0] : "Staff");
 
-          // 🟢 LOG SAVING LOGIC (Using the URL businessId to ensure it shows in Admin Dashboard)
           await addDoc(collection(db, "attendance_logs"), {
-            businessId: businessId, // Link this log to the Admin who owns this QR
-            businessName: businessData?.businessName || "Unknown Business",
+            businessId: businessId,
+            businessName: businessData.businessName || "Unknown Business",
             userId: user.uid,
             userName: displayName,
             userEmail: user.email,
@@ -121,7 +124,6 @@ export default function ScanPage() {
           toast.success(`Success: ${status}`, { id: toastId });
           setTimeout(() => navigate("/dashboard"), 3000);
         } catch (error) {
-          console.error("Submission error:", error);
           toast.error("Submission error", { id: toastId });
           setIsProcessing(false);
         }
@@ -133,6 +135,8 @@ export default function ScanPage() {
       { enableHighAccuracy: true, timeout: 10000 } 
     );
   };
+
+  // --- UI Renders ---
 
   if (isSuccess) {
     return (
@@ -162,27 +166,16 @@ export default function ScanPage() {
   return (
     <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-sm bg-white rounded-[3.5rem] p-10 shadow-2xl">
-        <div className="text-center mb-10">
-          <div className="w-24 h-24 bg-slate-50 rounded-[2.5rem] mx-auto mb-6 flex items-center justify-center shadow-inner overflow-hidden border-4 border-white">
-             {/* 🟢 DYNAMIC LOGO LOGIC */}
-             {businessData?.businessLogo ? (
-               <img 
-                 src={businessData.businessLogo} 
-                 className="w-full h-full object-cover" 
-                 alt="Business Logo" 
-               />
-             ) : (
-               <img 
-                 src={`https://ui-avatars.com/api/?name=${businessData?.businessName}&background=0f172a&color=fff&bold=true`} 
-                 className="w-full h-full rounded-2xl"
-                 alt="Fallback Logo"
-               />
-             )}
+        <div className="mb-10 text-center">
+          <div className="w-20 h-20 bg-slate-900 rounded-3xl mx-auto mb-6 flex items-center justify-center shadow-xl">
+             <img 
+              src={`https://ui-avatars.com/api/?name=${businessData?.businessName}&background=0f172a&color=fff&bold=true`} 
+              className="w-full h-full rounded-3xl"
+              alt="Logo"
+            />
           </div>
-          <h2 className="text-2xl font-black text-slate-900 leading-tight">
-            {businessData?.businessName}
-          </h2>
-          <span className="text-[10px] font-black uppercase tracking-widest text-blue-600 bg-blue-50 px-3 py-1 rounded-full mt-3 inline-block">
+          <h2 className="text-2xl font-black text-slate-900">{businessData?.businessName}</h2>
+          <span className="text-[10px] font-black uppercase tracking-widest text-blue-600 bg-blue-50 px-3 py-1 rounded-full mt-2 inline-block">
             Secure Terminal
           </span>
         </div>
