@@ -5,9 +5,7 @@ import { toast } from "react-hot-toast";
 export default function QRWidget({ businessId, businessName }) {
   // 🟢 LIVE PRODUCTION FIX
   // Replace 'your-app.vercel.app' with your actual Vercel domain
-  const PRODUCTION_URL = "https://your-app-name.vercel.app"; 
-
-  // If the dashboard is opened on localhost, we force the QR to use the Vercel link.
+ const PRODUCTION_URL = "https://attendance-website-eight.vercel.app"; // 🟢 Removed the "/" at the end
   // Otherwise, it uses the current live origin.
   const baseUrl = window.location.hostname === "localhost" 
     ? PRODUCTION_URL 
