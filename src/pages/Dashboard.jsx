@@ -4,10 +4,9 @@ import { collection, query, orderBy, onSnapshot, where } from "firebase/firestor
 import { useAuth } from "../context/AuthContext";
 import { detectPatterns } from "../services/analyticsEngine";
 import { toast } from "react-hot-toast";
-import { QRCodeCanvas } from "qrcode.react"; // Standardized to Canvas for better performance
+import { QRCodeCanvas } from "qrcode.react"; 
 import { Sparkles, Activity, ShieldAlert, Zap, Download, Printer, Copy } from "lucide-react";
 
-// Component Imports
 import StatsGrid from "../components/StatsGrid";
 import AttendanceChart from "../components/AttendanceChart";
 import AttendanceTable from "../components/AttendanceTable";
@@ -24,7 +23,6 @@ export default function Dashboard() {
     earlyCount: 0
   });
 
-  // Unique Scan URL for this business
   const scanUrl = `${window.location.origin}/scan?bid=${user?.uid}`;
 
   useEffect(() => {
@@ -41,7 +39,6 @@ export default function Dashboard() {
       
       if (fetchedLogs.length > 0) {
         const newestLog = fetchedLogs[0];
-        // Only toast if it's a brand new entry (prevents toast on first load)
         if (lastLogId.current && newestLog.id !== lastLogId.current) {
           toast(`${newestLog.userName} is ${newestLog.status}!`, {
             icon: newestLog.status === "On-Time" ? "✅" : "⚠️",
@@ -76,19 +73,21 @@ export default function Dashboard() {
     return () => unsubscribe();
   }, [user]);
 
+  // 🛡️ Enhanced Pattern Detection
   useEffect(() => {
     if (logs.length > 0) {
       const patterns = detectPatterns(logs);
-      setAlerts(patterns);
+      setAlerts(patterns || []);
     }
   }, [logs]);
 
   const downloadQR = () => {
     const canvas = document.getElementById("terminal-qr");
+    if (!canvas) return;
     const url = canvas.toDataURL("image/png");
     const link = document.createElement("a");
     link.href = url;
-    link.download = `terminal-qr-${user?.businessName}.png`;
+    link.download = `terminal-qr-${user?.businessName || 'business'}.png`;
     link.click();
   };
 
@@ -97,7 +96,7 @@ export default function Dashboard() {
       
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         
-        {/* THE QR TERMINAL CARD */}
+        {/* QR TERMINAL CARD */}
         <div className="lg:col-span-4 bg-white p-8 rounded-[3.5rem] border border-slate-100 shadow-2xl shadow-slate-200/50 flex flex-col items-center text-center relative overflow-hidden group">
           <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
             <Sparkles size={60} className="text-blue-600" />
@@ -159,29 +158,35 @@ export default function Dashboard() {
 
             <StatsGrid stats={stats} />
             
-            <div className={`transition-all duration-700 ${alerts.length > 0 ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'}`}>
-              <div className="bg-slate-900 p-8 rounded-[3rem] shadow-2xl shadow-blue-900/20 relative overflow-hidden">
-                  <h3 className="text-blue-400 font-black flex items-center gap-3 text-xs uppercase tracking-[0.3em] mb-6">
-                      <ShieldAlert size={18} />
-                      Intelligence Alerts
-                  </h3>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {alerts.map((alert, i) => (
-                          <div key={i} className="bg-white/5 border border-white/10 p-5 rounded-3xl backdrop-blur-sm hover:bg-white/10 transition-all">
-                              <p className="text-white font-black text-sm mb-1 italic">{alert.userName}</p>
-                              <p className="text-blue-200/50 text-[10px] font-bold uppercase tracking-widest">
-                                {alert.issue}
-                              </p>
-                          </div>
-                      ))}
-                  </div>
-              </div>
+            {/* 🟢 REFINED INTELLIGENCE SECTION */}
+            <div className="bg-slate-900 p-8 rounded-[3rem] shadow-2xl shadow-blue-900/20 relative overflow-hidden transition-all duration-500">
+                <h3 className="text-blue-400 font-black flex items-center gap-3 text-xs uppercase tracking-[0.3em] mb-6">
+                  <ShieldAlert size={18} />
+                  Intelligence Alerts
+                </h3>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {alerts.length > 0 ? (
+                    alerts.map((alert, i) => (
+                      <div key={i} className="bg-white/5 border border-white/10 p-5 rounded-3xl backdrop-blur-sm hover:bg-white/10 transition-all border-l-4 border-l-blue-500">
+                        <p className="text-white font-black text-sm mb-1 italic">{alert.userName}</p>
+                        <p className="text-blue-200/50 text-[10px] font-bold uppercase tracking-widest leading-tight">
+                          {alert.issue}
+                        </p>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="col-span-2 py-6 flex flex-col items-center justify-center opacity-20">
+                      <Zap size={24} className="text-white mb-2" />
+                      <p className="text-white text-[10px] font-black uppercase tracking-widest">Scanning for anomalies...</p>
+                    </div>
+                  )}
+                </div>
             </div>
         </div>
       </div>
 
-      {/* LOWER SECTION: TRENDS & ACTIVITY */}
+      {/* LOWER SECTION */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
         <div className="xl:col-span-8 bg-white p-4 rounded-[3.5rem] border border-slate-100 shadow-2xl shadow-slate-200/40 min-h-[450px]">
            <AttendanceChart logs={logs} /> 
@@ -198,7 +203,6 @@ export default function Dashboard() {
               <span className="text-[9px] font-black text-blue-600 uppercase tracking-tighter">Syncing</span>
             </div>
           </div>
-          
           <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
              <AttendanceTable logs={logs} />
           </div>
