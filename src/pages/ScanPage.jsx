@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { db } from "../lib/firebase";
-import { collection, addDoc, serverTimestamp, doc, getDoc } from "firebase/firestore";
+import { collection, addDoc, serverTimestamp, doc, getDoc, updateDoc } from "firebase/firestore";
 import { useAuth } from "../context/AuthContext";
 import { CheckCircle, ShieldAlert, Loader2 } from "lucide-react";
 import toast from "react-hot-toast";
@@ -36,11 +36,9 @@ export default function ScanPage() {
         return;
       }
       try {
-        // 🟢 FETCH 1: Get Business Name from 'users'
         const userRef = doc(db, "users", businessId);
         const userSnap = await getDoc(userRef);
         
-        // 🟢 FETCH 2: Get GPS/Rules from 'business_settings'
         const settingsRef = doc(db, "business_settings", businessId);
         const settingsSnap = await getDoc(settingsRef);
 
@@ -48,7 +46,6 @@ export default function ScanPage() {
           const profile = userSnap.data();
           const settings = settingsSnap.exists() ? settingsSnap.data() : {};
           
-          // Merge them: settings now contains location, radius, etc.
           setBusinessData({
             ...profile,
             settings: settings 
@@ -73,7 +70,6 @@ export default function ScanPage() {
     setIsProcessing(true);
     const toastId = toast.loading("Verifying location...");
 
-    // Access merged settings
     const rules = businessData?.settings || {};
     const officeLocation = rules.location; 
 
@@ -104,13 +100,22 @@ export default function ScanPage() {
           deadline.setHours(targetHour, targetMinute + (Number(rules.gracePeriod) || 0), 0);
 
           const status = now > deadline ? "Late" : "On-Time";
-          const displayName = user.displayName || (user.email ? user.email.split('@')[0] : "Staff");
+          const finalUserName = user.displayName || (user.email ? user.email.split('@')[0] : "Staff Member");
 
+          // 🟢 STEP 1: Update the user's profile to link them to this business
+          // This makes them show up in your Employees Page automatically
+          const myProfileRef = doc(db, "users", user.uid);
+          await updateDoc(myProfileRef, {
+            businessId: businessId,
+            lastScan: serverTimestamp()
+          });
+
+          // 🟢 STEP 2: Create the log for the Dashboard
           await addDoc(collection(db, "attendance_logs"), {
             businessId: businessId,
             businessName: businessData.businessName || "Unknown Business",
             userId: user.uid,
-            userName: displayName,
+            userName: finalUserName,
             userEmail: user.email,
             status: status,
             timestamp: serverTimestamp(),
@@ -121,9 +126,12 @@ export default function ScanPage() {
           });
 
           setIsSuccess(true); 
-          toast.success(`Success: ${status}`, { id: toastId });
+          toast.success(`Success: Marked as ${status}`, { id: toastId });
+          
+          // Redirect to see the updated logs on the dashboard
           setTimeout(() => navigate("/dashboard"), 3000);
         } catch (error) {
+          console.error("Error during clock-in:", error);
           toast.error("Submission error", { id: toastId });
           setIsProcessing(false);
         }
@@ -136,14 +144,13 @@ export default function ScanPage() {
     );
   };
 
-  // --- UI Renders ---
-
+  // ... (Keep the rest of your UI Renders the same)
   if (isSuccess) {
     return (
       <div className="min-h-screen bg-emerald-500 flex flex-col items-center justify-center p-6 text-white text-center">
         <CheckCircle size={60} className="mb-4 animate-bounce" />
         <h1 className="text-4xl font-black italic">Verified!</h1>
-        <p className="mt-2 text-sm uppercase tracking-widest opacity-80">Log saved successfully</p>
+        <p className="mt-2 text-sm uppercase tracking-widest opacity-80">Presence Logged Successfully</p>
       </div>
     );
   }
@@ -167,10 +174,10 @@ export default function ScanPage() {
     <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-sm bg-white rounded-[3.5rem] p-10 shadow-2xl">
         <div className="mb-10 text-center">
-          <div className="w-20 h-20 bg-slate-900 rounded-3xl mx-auto mb-6 flex items-center justify-center shadow-xl">
+          <div className="w-20 h-20 bg-slate-900 rounded-3xl mx-auto mb-6 flex items-center justify-center shadow-xl overflow-hidden">
              <img 
               src={`https://ui-avatars.com/api/?name=${businessData?.businessName}&background=0f172a&color=fff&bold=true`} 
-              className="w-full h-full rounded-3xl"
+              className="w-full h-full object-cover"
               alt="Logo"
             />
           </div>
