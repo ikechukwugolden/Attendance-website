@@ -4,13 +4,13 @@ import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { useAuth } from "../context/AuthContext";
 import { Save, Clock, MapPin, Loader2, Target, Info } from "lucide-react";
 import { toast } from "react-hot-toast";
+import AdminQR from "../components/AdminQR"; // 🟢 Import the component
 
 export default function Settings() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   
-  // 🟢 Standardized to match the ScanPage logic
   const [config, setConfig] = useState({
     shiftStart: "09:00",
     gracePeriod: 15,
@@ -27,7 +27,6 @@ export default function Settings() {
         
         if (docSnap.exists() && docSnap.data().settings) {
           const data = docSnap.data().settings;
-          // Ensure location object exists to prevent crashes
           setConfig({
             ...data,
             location: data.location || { lat: 0, lng: 0 }
@@ -76,7 +75,8 @@ export default function Settings() {
   );
 
   return (
-    <div className="max-w-5xl space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20">
+    <div className="max-w-6xl space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20">
+      {/* Header */}
       <div className="flex justify-between items-end">
         <div>
           <h2 className="text-4xl font-black text-slate-900 tracking-tighter italic">Global Rules</h2>
@@ -88,11 +88,12 @@ export default function Settings() {
         </div>
       </div>
 
-      <form onSubmit={handleSave} className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      {/* Main Grid: Form + Sidebar */}
+      <form onSubmit={handleSave} className="grid grid-cols-1 lg:grid-cols-3 gap-10">
         
-        <div className="lg:col-span-2 space-y-8">
+        <div className="lg:col-span-2 space-y-10">
           {/* Timing Section */}
-          <section className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-xl shadow-slate-200/30">
+          <section className="bg-white p-10 rounded-[3.5rem] border border-slate-100 shadow-xl shadow-slate-200/30">
             <div className="flex items-center gap-4 mb-10">
               <div className="w-12 h-12 bg-blue-600 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-blue-200">
                 <Clock size={24} />
@@ -126,7 +127,7 @@ export default function Settings() {
           </section>
 
           {/* Geofencing Section */}
-          <section className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-xl shadow-slate-200/30">
+          <section className="bg-white p-10 rounded-[3.5rem] border border-slate-100 shadow-xl shadow-slate-200/30">
             <div className="flex items-center justify-between mb-10">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 bg-emerald-500 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-200">
@@ -169,9 +170,15 @@ export default function Settings() {
               </div>
             </div>
           </section>
+
+          {/* 🟢 QR CODE SECTION */}
+          <section className="mt-10">
+            <h3 className="text-2xl font-black text-slate-900 mb-6 italic">Terminal Generation</h3>
+            <AdminQR />
+          </section>
         </div>
 
-        {/* Sidebar Save Section */}
+        {/* Sidebar Save Button */}
         <div className="lg:col-span-1">
           <div className="bg-slate-900 p-8 rounded-[3rem] sticky top-8 text-white shadow-2xl">
             <h4 className="font-black uppercase text-[10px] tracking-widest text-blue-400 mb-4">Verification</h4>
