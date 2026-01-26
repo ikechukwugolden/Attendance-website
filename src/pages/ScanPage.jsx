@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { db } from "../lib/firebase";
-import { collection, addDoc, serverTimestamp, doc, getDoc, updateDoc } from "firebase/firestore";
+import { collection, addDoc, serverTimestamp, doc, getDoc, setDoc } from "firebase/firestore"; // 🟢 Added setDoc
 import { useAuth } from "../context/AuthContext";
 import { CheckCircle, ShieldAlert, Loader2 } from "lucide-react";
 import toast from "react-hot-toast";
@@ -102,13 +102,16 @@ export default function ScanPage() {
           const status = now > deadline ? "Late" : "On-Time";
           const finalUserName = user.displayName || (user.email ? user.email.split('@')[0] : "Staff Member");
 
-          // 🟢 STEP 1: Update the user's profile to link them to this business
-          // This makes them show up in your Employees Page automatically
+          // 🟢 STEP 1: Link user to business safely
+          // Using setDoc + merge ensures this works even if the user document doesn't exist yet
           const myProfileRef = doc(db, "users", user.uid);
-          await updateDoc(myProfileRef, {
+          await setDoc(myProfileRef, {
             businessId: businessId,
-            lastScan: serverTimestamp()
-          });
+            lastScan: serverTimestamp(),
+            displayName: finalUserName,
+            email: user.email,
+            photoURL: user.photoURL || ""
+          }, { merge: true });
 
           // 🟢 STEP 2: Create the log for the Dashboard
           await addDoc(collection(db, "attendance_logs"), {
@@ -122,17 +125,18 @@ export default function ScanPage() {
             location: { lat: latitude, lng: longitude },
             distanceFromOffice: officeLocation ? calculateDistance(latitude, longitude, officeLocation.lat, officeLocation.lng) : 0,
             type: "QR_Scan",
-            clientTime: now.toISOString()
+            clientTime: now.toISOString(),
+            department: user.department || "General" // Ensures department shows in reports
           });
 
           setIsSuccess(true); 
           toast.success(`Success: Marked as ${status}`, { id: toastId });
           
-          // Redirect to see the updated logs on the dashboard
           setTimeout(() => navigate("/dashboard"), 3000);
         } catch (error) {
           console.error("Error during clock-in:", error);
-          toast.error("Submission error", { id: toastId });
+          // 🟢 Added error code to toast to help you debug in real-time
+          toast.error(`Submission error: ${error.code || 'Check Rules'}`, { id: toastId });
           setIsProcessing(false);
         }
       },
@@ -144,7 +148,6 @@ export default function ScanPage() {
     );
   };
 
-  // ... (Keep the rest of your UI Renders the same)
   if (isSuccess) {
     return (
       <div className="min-h-screen bg-emerald-500 flex flex-col items-center justify-center p-6 text-white text-center">
