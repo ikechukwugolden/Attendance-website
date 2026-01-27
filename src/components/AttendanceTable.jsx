@@ -14,16 +14,16 @@ export default function AttendanceTable() {
 
     // 🟢 Multi-tenant query: only get logs for this business
     const q = query(
-      collection(db, "attendance_logs"), 
+      collection(db, "attendance_logs"),
       where("businessId", "==", user.uid),
       orderBy("timestamp", "desc"),
       limit(10)
     );
-    
+
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const logs = snapshot.docs.map(doc => ({ 
-        id: doc.id, 
-        ...doc.data() 
+      const logs = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
       }));
       setActiveUsers(logs);
       setLoading(false);
@@ -38,8 +38,8 @@ export default function AttendanceTable() {
     <div className="mt-4 overflow-x-auto">
       {activeUsers.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-12 bg-slate-50 rounded-[2rem] border-2 border-dashed border-slate-100">
-           <Clock className="text-slate-200 mb-2" size={32} />
-           <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">No activity today</p>
+          <Clock className="text-slate-200 mb-2" size={32} />
+          <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">No activity today</p>
         </div>
       ) : (
         <table className="w-full text-left">
@@ -67,11 +67,10 @@ export default function AttendanceTable() {
                   </span>
                 </td>
                 <td className="py-4 text-right">
-                  <span className={`inline-flex px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                    log.status === "Late" 
-                    ? "bg-rose-50 text-rose-600 border border-rose-100" 
-                    : "bg-emerald-50 text-emerald-600 border border-emerald-100"
-                  }`}>
+                  <span className={`inline-flex px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${log.status === "Late"
+                      ? "bg-rose-50 text-rose-600 border border-rose-100"
+                      : "bg-emerald-50 text-emerald-600 border border-emerald-100"
+                    }`}>
                     {log.status}
                   </span>
                 </td>

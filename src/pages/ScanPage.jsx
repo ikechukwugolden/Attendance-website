@@ -18,8 +18,8 @@ export default function ScanPage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [loadingBusiness, setLoadingBusiness] = useState(true);
   const [isSuccess, setIsSuccess] = useState(false); 
-  const [myStatus, setMyStatus] = useState(""); // Track if user was late/on-time
-  const [coworkers, setCoworkers] = useState([]); // Live team feed
+  const [myStatus, setMyStatus] = useState(""); 
+  const [coworkers, setCoworkers] = useState([]); 
   
   const businessId = searchParams.get("bid");
 
@@ -34,7 +34,6 @@ export default function ScanPage() {
     return R * c; 
   };
 
-  // 1. Fetch Business Profile
   useEffect(() => {
     async function fetchCompleteBusinessProfile() {
       if (!businessId) {
@@ -62,7 +61,6 @@ export default function ScanPage() {
     fetchCompleteBusinessProfile();
   }, [businessId]);
 
-  // 2. Real-time Team Feed (Only active after successful scan)
   useEffect(() => {
     if (isSuccess && businessId) {
       const today = new Date();
@@ -101,7 +99,7 @@ export default function ScanPage() {
 
         if (officeLocation) {
           const distance = calculateDistance(latitude, longitude, officeLocation.lat, officeLocation.lng);
-          const allowedRadius = rules.geofenceRadius || 200;
+          const allowedRadius = Number(rules.geofenceRadius) || 200;
 
           if (distance > allowedRadius) {
             toast.error(`Out of Bounds: ${Math.round(distance)}m away.`, { id: toastId });
@@ -112,15 +110,21 @@ export default function ScanPage() {
 
         try {
           const now = new Date();
+          
+          // --- UPDATED TIME CALCULATION ---
           const shiftTime = rules.shiftStart || "09:00";
           const [targetHour, targetMinute] = shiftTime.split(":").map(Number);
+          
           const deadline = new Date();
-          deadline.setHours(targetHour, targetMinute + (Number(rules.gracePeriod) || 0), 0);
+          // Set deadline to today at the shift time + grace period
+          deadline.setHours(targetHour, targetMinute + (Number(rules.gracePeriod) || 0), 0, 0);
 
-          const status = now > deadline ? "Late" : "On-Time";
+          // Compare using milliseconds for 100% accuracy
+          const status = now.getTime() > deadline.getTime() ? "Late" : "On-Time";
+          // --------------------------------
+
           const finalUserName = user.displayName || (user.email ? user.email.split('@')[0] : "Staff Member");
 
-          // Update User Profile
           const myProfileRef = doc(db, "users", user.uid);
           await setDoc(myProfileRef, {
             businessId: businessId,
@@ -129,7 +133,6 @@ export default function ScanPage() {
             email: user.email
           }, { merge: true });
 
-          // Create Attendance Log
           await addDoc(collection(db, "attendance_logs"), {
             businessId: businessId,
             businessName: businessData.businessName || "Unknown Business",
@@ -157,7 +160,6 @@ export default function ScanPage() {
     );
   };
 
-  // --- SUCCESS VIEW (TEAM FEED) ---
   if (isSuccess) {
     return (
       <div className="min-h-screen bg-slate-950 text-white p-6 flex flex-col items-center animate-in fade-in duration-700">
@@ -180,7 +182,7 @@ export default function ScanPage() {
               <div key={worker.id} className="flex justify-between items-center p-4 bg-white/5 rounded-2xl border border-white/5 hover:bg-white/10 transition-all">
                 <div className="flex items-center gap-3">
                   <div className="h-8 w-8 rounded-xl bg-slate-800 flex items-center justify-center font-black text-[10px] text-blue-400">
-                    {worker.userName.charAt(0)}
+                    {worker.userName?.charAt(0)}
                   </div>
                   <div>
                     <p className="text-sm font-bold tracking-tight">{worker.userName}</p>
@@ -197,19 +199,11 @@ export default function ScanPage() {
               </div>
             ))}
           </div>
-
-          {/* <button 
-            onClick={() => navigate("/dashboard")}
-            className="w-full mt-8 py-4 rounded-2xl bg-white text-slate-950 text-[10px] font-black uppercase tracking-widest hover:bg-blue-400 hover:text-white transition-all"
-          >
-            Enter Personal Dashboard
-          </button> */}
         </div>
       </div>
     );
   }
 
-  // --- LOADING / ERROR VIEWS ---
   if (loadingBusiness) return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-slate-900">
       <Loader2 className="animate-spin text-blue-500 mb-4" size={40} />
@@ -225,7 +219,6 @@ export default function ScanPage() {
     </div>
   );
 
-  // --- INITIAL SCAN VIEW ---
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-sm bg-white rounded-[3.5rem] p-10 shadow-2xl">
