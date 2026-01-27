@@ -1,10 +1,10 @@
 import { useState, useEffect } from "react";
 import { db } from "../lib/firebase";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc } from "firebase/firestore"; // Changed updateDoc to setDoc
 import { useAuth } from "../context/AuthContext";
 import { Save, Clock, MapPin, Loader2, Target, Info } from "lucide-react";
 import { toast } from "react-hot-toast";
-import AdminQR from "../components/AdminQR"; // 🟢 Import the component
+import AdminQR from "../components/AdminQR";
 
 export default function Settings() {
   const { user } = useAuth();
@@ -22,11 +22,12 @@ export default function Settings() {
     async function fetchSettings() {
       if (!user?.uid) return;
       try {
-        const docRef = doc(db, "users", user.uid);
+        // 🟢 FIXED: Fetching from business_settings collection to match the Scanner
+        const docRef = doc(db, "business_settings", user.uid);
         const docSnap = await getDoc(docRef);
         
-        if (docSnap.exists() && docSnap.data().settings) {
-          const data = docSnap.data().settings;
+        if (docSnap.exists()) {
+          const data = docSnap.data();
           setConfig({
             ...data,
             location: data.location || { lat: 0, lng: 0 }
@@ -45,10 +46,15 @@ export default function Settings() {
     e.preventDefault();
     setIsSaving(true);
     try {
-      const docRef = doc(db, "users", user.uid);
-      await updateDoc(docRef, { settings: config });
-      toast.success("Workplace rules updated!");
+      // 🟢 FIXED: Saving to business_settings collection
+      const docRef = doc(db, "business_settings", user.uid);
+      
+      // We use setDoc with merge: true so it creates the doc if it doesn't exist
+      await setDoc(docRef, config, { merge: true });
+      
+      toast.success("Workplace rules pushed to cloud!");
     } catch (error) {
+      console.error(error);
       toast.error("Failed to update settings.");
     } finally {
       setIsSaving(false);
@@ -88,9 +94,7 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* Main Grid: Form + Sidebar */}
       <form onSubmit={handleSave} className="grid grid-cols-1 lg:grid-cols-3 gap-10">
-        
         <div className="lg:col-span-2 space-y-10">
           {/* Timing Section */}
           <section className="bg-white p-10 rounded-[3.5rem] border border-slate-100 shadow-xl shadow-slate-200/30">
@@ -171,7 +175,6 @@ export default function Settings() {
             </div>
           </section>
 
-          {/* 🟢 QR CODE SECTION */}
           <section className="mt-10">
             <h3 className="text-2xl font-black text-slate-900 mb-6 italic">Terminal Generation</h3>
             <AdminQR />
@@ -183,7 +186,7 @@ export default function Settings() {
           <div className="bg-slate-900 p-8 rounded-[3rem] sticky top-8 text-white shadow-2xl">
             <h4 className="font-black uppercase text-[10px] tracking-widest text-blue-400 mb-4">Verification</h4>
             <p className="text-sm font-medium leading-relaxed opacity-70 mb-8">
-              Applying these rules will recalculate all "Late" vs "On-Time" flags for future scans. Employees outside the {config.geofenceRadius}m radius will be blocked.
+              Applying these rules will recalculate all "Late" vs "On-Time" flags for future scans.
             </p>
             <button 
               disabled={isSaving}
