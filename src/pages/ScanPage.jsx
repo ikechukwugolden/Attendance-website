@@ -198,12 +198,12 @@ export default function ScanPage() {
             ))}
           </div>
 
-          <button 
+          {/* <button 
             onClick={() => navigate("/dashboard")}
             className="w-full mt-8 py-4 rounded-2xl bg-white text-slate-950 text-[10px] font-black uppercase tracking-widest hover:bg-blue-400 hover:text-white transition-all"
           >
             Enter Personal Dashboard
-          </button>
+          </button> */}
         </div>
       </div>
     );
