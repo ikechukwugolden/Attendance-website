@@ -1,12 +1,11 @@
 import { useState, useEffect, useRef } from "react"; 
 import { db } from "../lib/firebase";
-// 🟢 Added writeBatch and getDocs for the reset functionality
 import { collection, query, orderBy, onSnapshot, where, setDoc, doc, writeBatch, getDocs } from "firebase/firestore";
 import { useAuth } from "../context/AuthContext";
 import { detectPatterns } from "../services/analyticsEngine";
 import { toast } from "react-hot-toast";
 import { QRCodeCanvas } from "qrcode.react"; 
-import { Sparkles, Activity, ShieldAlert, Zap, Download, Printer, Copy, X, RotateCcw } from "lucide-react";
+import { Sparkles, Activity, ShieldAlert, Zap, Download, Printer, Copy, X, RotateCcw, LogOut } from "lucide-react";
 
 import StatsGrid from "../components/StatsGrid";
 import AttendanceChart from "../components/AttendanceChart";
@@ -27,7 +26,6 @@ export default function Dashboard() {
 
   const scanUrl = `${window.location.origin}/scan?bid=${user?.uid}`;
 
-  // 1. Sync Dismissed Alerts from Cloud
   useEffect(() => {
     if (!user) return;
     const q = query(collection(db, "dismissed_alerts"), where("businessId", "==", user.uid));
@@ -37,7 +35,6 @@ export default function Dashboard() {
     return () => unsubscribe();
   }, [user]);
 
-  // 2. Sync Attendance Logs
   useEffect(() => {
     if (!user) return;
     const q = query(collection(db, "attendance_logs"), where("businessId", "==", user.uid), orderBy("timestamp", "desc"));
@@ -47,8 +44,15 @@ export default function Dashboard() {
       if (fetchedLogs.length > 0) {
         const newestLog = fetchedLogs[0];
         if (lastLogId.current && newestLog.id !== lastLogId.current) {
+          // 🟢 Updated Toast Icon logic for Check-Outs
+          const getIcon = (status) => {
+            if (status === "Checked-Out") return "🚪";
+            if (status === "On-Time") return "✅";
+            return "⚠️";
+          };
+
           toast(`${newestLog.userName} is ${newestLog.status}!`, {
-            icon: newestLog.status === "On-Time" ? "✅" : "⚠️",
+            icon: getIcon(newestLog.status),
             style: { borderRadius: '24px', background: '#0f172a', color: '#fff', fontSize: '12px', fontWeight: '900', padding: '16px 24px' }
           });
         }
@@ -59,9 +63,13 @@ export default function Dashboard() {
       const today = new Date().toLocaleDateString();
       const todayLogs = fetchedLogs.filter(l => l.timestamp?.toDate().toLocaleDateString() === today);
       
+      // 🟢 Logic tweak: 'Present' usually means people currently at work (Check-ins minus Check-outs)
+      // Or you can keep it as 'total unique people who showed up today'
+      const uniqueCheckIns = new Set(todayLogs.filter(l => l.type !== "Check_Out").map(l => l.userId));
+
       setStats({
         totalCount: fetchedLogs.length,
-        presentCount: todayLogs.length,
+        presentCount: uniqueCheckIns.size, 
         lateCount: todayLogs.filter(l => l.status === "Late").length,
         earlyCount: todayLogs.filter(l => l.status === "Early").length
       });
@@ -69,7 +77,6 @@ export default function Dashboard() {
     return () => unsubscribe();
   }, [user]);
 
-  // 🛡️ 3. Pattern Detection + Cloud Filtering
   useEffect(() => {
     if (logs.length > 0 && user?.uid) {
       const patterns = detectPatterns(logs);
@@ -82,7 +89,6 @@ export default function Dashboard() {
     }
   }, [logs, cloudDismissed, user?.uid]);
 
-  // 🟢 4. Handle Single Dismissal
   const handleDismissAlert = async (userName, type) => {
     if (!user?.uid) return;
     try {
@@ -100,23 +106,16 @@ export default function Dashboard() {
     }
   };
 
-  // 🟢 5. Reset All Dismissed Alerts (New Function)
   const handleResetAlerts = async () => {
     if (!window.confirm("Restore all hidden intelligence alerts?")) return;
-    
     try {
       const q = query(collection(db, "dismissed_alerts"), where("businessId", "==", user.uid));
       const snapshot = await getDocs(q);
       const batch = writeBatch(db);
-      
-      snapshot.docs.forEach((doc) => {
-        batch.delete(doc.ref);
-      });
-
+      snapshot.docs.forEach((doc) => { batch.delete(doc.ref); });
       await batch.commit();
       toast.success("Intelligence reset");
     } catch (error) {
-      console.error(error);
       toast.error("Reset failed");
     }
   };
@@ -181,7 +180,6 @@ export default function Dashboard() {
                     Intelligence Alerts
                   </h3>
                   
-                  {/* 🟢 RESET BUTTON UI */}
                   {cloudDismissed.length > 0 && (
                     <button 
                       onClick={handleResetAlerts}
@@ -220,7 +218,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Table & Chart Section */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
         <div className="xl:col-span-8 bg-white p-4 rounded-[3.5rem] border border-slate-100 shadow-2xl shadow-slate-200/40 min-h-[450px]">
            <AttendanceChart logs={logs} /> 

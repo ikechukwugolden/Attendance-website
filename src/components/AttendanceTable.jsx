@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { db } from "../lib/firebase";
 import { collection, query, orderBy, limit, onSnapshot, where } from "firebase/firestore";
-import { useAuth } from "../context/AuthContext"; // 🟢 Multi-tenant auth
-import { Clock, User as UserIcon } from "lucide-react";
+import { useAuth } from "../context/AuthContext";
+import { Clock, User as UserIcon, LogOut, Smartphone, MousePointer2 } from "lucide-react";
 
 export default function AttendanceTable() {
   const { user } = useAuth();
@@ -12,7 +12,6 @@ export default function AttendanceTable() {
   useEffect(() => {
     if (!user?.uid) return;
 
-    // 🟢 Multi-tenant query: only get logs for this business
     const q = query(
       collection(db, "attendance_logs"),
       where("businessId", "==", user.uid),
@@ -31,6 +30,18 @@ export default function AttendanceTable() {
 
     return () => unsubscribe();
   }, [user]);
+
+  // Helper to determine status styling
+  const getStatusStyles = (status) => {
+    switch (status) {
+      case "Late":
+        return "bg-rose-50 text-rose-600 border-rose-100";
+      case "Checked-Out":
+        return "bg-slate-100 text-slate-600 border-slate-200";
+      default:
+        return "bg-emerald-50 text-emerald-600 border-emerald-100";
+    }
+  };
 
   if (loading) return <div className="py-10 text-center animate-pulse text-slate-400 font-bold uppercase text-[10px] tracking-widest">Refreshing Live Feed...</div>;
 
@@ -55,10 +66,16 @@ export default function AttendanceTable() {
               <tr key={log.id} className="group hover:bg-slate-50/50 transition-all">
                 <td className="py-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400">
-                      <UserIcon size={14} />
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${log.status === "Checked-Out" ? "bg-slate-200 text-slate-500" : "bg-slate-100 text-slate-400"}`}>
+                      {log.status === "Checked-Out" ? <LogOut size={14} /> : <UserIcon size={14} />}
                     </div>
-                    <span className="font-bold text-slate-700 text-sm tracking-tight">{log.userName}</span>
+                    <div className="flex flex-col">
+                      <span className="font-bold text-slate-700 text-sm tracking-tight">{log.userName}</span>
+                      <div className="flex items-center gap-1 text-[8px] font-black text-slate-300 uppercase tracking-tighter">
+                        {log.type === "QR_Scan" ? <Smartphone size={8}/> : <MousePointer2 size={8}/>}
+                        {log.type?.replace('_', ' ') || 'Log'}
+                      </div>
+                    </div>
                   </div>
                 </td>
                 <td className="py-4">
@@ -67,10 +84,7 @@ export default function AttendanceTable() {
                   </span>
                 </td>
                 <td className="py-4 text-right">
-                  <span className={`inline-flex px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${log.status === "Late"
-                      ? "bg-rose-50 text-rose-600 border border-rose-100"
-                      : "bg-emerald-50 text-emerald-600 border border-emerald-100"
-                    }`}>
+                  <span className={`inline-flex px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border ${getStatusStyles(log.status)}`}>
                     {log.status}
                   </span>
                 </td>
