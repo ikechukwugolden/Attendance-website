@@ -5,7 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import { detectPatterns } from "../services/analyticsEngine";
 import { toast } from "react-hot-toast";
 import { QRCodeCanvas } from "qrcode.react"; 
-import { Sparkles, Activity, ShieldAlert, Zap, Download, Printer, Copy, X, RotateCcw, LogOut } from "lucide-react";
+import { Sparkles, Activity, ShieldAlert, Zap, Download, Printer, Copy, X, RotateCcw } from "lucide-react";
 
 import StatsGrid from "../components/StatsGrid";
 import AttendanceChart from "../components/AttendanceChart";
@@ -16,15 +16,26 @@ export default function Dashboard() {
   const [logs, setLogs] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [cloudDismissed, setCloudDismissed] = useState([]); 
+  const [businessProfile, setBusinessProfile] = useState(null); 
   const lastLogId = useRef(null);
   const [stats, setStats] = useState({
     totalCount: 0,
     presentCount: 0,
     lateCount: 0,
-    earlyCount: 0
+    checkedOutCount: 0 // 🟢 Added for the new StatsCard
   });
 
   const scanUrl = `${window.location.origin}/scan?bid=${user?.uid}`;
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    const unsub = onSnapshot(doc(db, "users", user.uid), (docSnap) => {
+      if (docSnap.exists()) {
+        setBusinessProfile(docSnap.data());
+      }
+    });
+    return () => unsub();
+  }, [user]);
 
   useEffect(() => {
     if (!user) return;
@@ -43,16 +54,19 @@ export default function Dashboard() {
       
       if (fetchedLogs.length > 0) {
         const newestLog = fetchedLogs[0];
+        
         if (lastLogId.current && newestLog.id !== lastLogId.current) {
-          // 🟢 Updated Toast Icon logic for Check-Outs
-          const getIcon = (status) => {
-            if (status === "Checked-Out") return "🚪";
-            if (status === "On-Time") return "✅";
+          const isCheckOut = newestLog.status === "Checked-Out" || newestLog.status === "On Break" || newestLog.type === "Check_Out";
+          const displayStatus = isCheckOut ? "Checked-Out" : newestLog.status;
+          
+          const getIcon = () => {
+            if (isCheckOut) return "🚪";
+            if (newestLog.status === "On-Time") return "✅";
             return "⚠️";
           };
 
-          toast(`${newestLog.userName} is ${newestLog.status}!`, {
-            icon: getIcon(newestLog.status),
+          toast(`${newestLog.userName} is ${displayStatus}!`, {
+            icon: getIcon(),
             style: { borderRadius: '24px', background: '#0f172a', color: '#fff', fontSize: '12px', fontWeight: '900', padding: '16px 24px' }
           });
         }
@@ -63,15 +77,15 @@ export default function Dashboard() {
       const today = new Date().toLocaleDateString();
       const todayLogs = fetchedLogs.filter(l => l.timestamp?.toDate().toLocaleDateString() === today);
       
-      // 🟢 Logic tweak: 'Present' usually means people currently at work (Check-ins minus Check-outs)
-      // Or you can keep it as 'total unique people who showed up today'
-      const uniqueCheckIns = new Set(todayLogs.filter(l => l.type !== "Check_Out").map(l => l.userId));
+      // 🟢 Logic: Unique users who checked in today and haven't checked out as their last action
+      const uniqueCheckIns = new Set(todayLogs.filter(l => l.type !== "Check_Out" && l.status !== "Checked-Out").map(l => l.userId));
 
       setStats({
         totalCount: fetchedLogs.length,
         presentCount: uniqueCheckIns.size, 
         lateCount: todayLogs.filter(l => l.status === "Late").length,
-        earlyCount: todayLogs.filter(l => l.status === "Early").length
+        // 🟢 Logic: Count everyone who has a "Checked-Out" or "Check_Out" entry today
+        checkedOutCount: todayLogs.filter(l => l.status === "Checked-Out" || l.status === "On Break" || l.type === "Check_Out").length
       });
     });
     return () => unsubscribe();
@@ -147,8 +161,21 @@ export default function Dashboard() {
               <Download size={18} />
             </button>
           </div>
-          <img src={user?.photoURL || `https://ui-avatars.com/api/?name=Admin&background=0f172a&color=fff`} className="w-20 h-20 rounded-[2rem] mb-4 shadow-2xl object-cover ring-8 ring-slate-50" alt="Logo" />
-          <h2 className="text-2xl font-black text-slate-900 tracking-tighter italic">{user?.businessName || "Terminal Active"}</h2>
+          
+          <div className="w-20 h-20 rounded-[2rem] mb-4 shadow-2xl ring-8 ring-slate-50 overflow-hidden flex items-center justify-center bg-slate-100">
+            {businessProfile?.photoURL ? (
+               <img src={businessProfile.photoURL} className="w-full h-full object-cover" alt="Logo" />
+            ) : (
+               <div className="text-slate-400 font-black text-2xl uppercase">
+                 {businessProfile?.businessName?.charAt(0) || "A"}
+               </div>
+            )}
+          </div>
+
+          <h2 className="text-2xl font-black text-slate-900 tracking-tighter italic">
+            {businessProfile?.businessName || "Terminal Active"}
+          </h2>
+
           <p className="text-[9px] text-blue-500 font-black uppercase tracking-[0.3em] mb-8">Ref: {user?.uid?.slice(0, 8)}</p>
           <div className="p-8 bg-slate-900 rounded-[3rem] shadow-2xl shadow-blue-900/20 mb-8 transform group-hover:scale-105 transition-transform duration-500">
             <QRCodeCanvas id="terminal-qr" value={scanUrl} size={160} level="H" fgColor="#ffffff" bgColor="transparent" />

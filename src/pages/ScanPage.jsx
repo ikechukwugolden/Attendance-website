@@ -6,7 +6,7 @@ import {
   query, where, orderBy, onSnapshot 
 } from "firebase/firestore";
 import { useAuth } from "../context/AuthContext";
-import { CheckCircle, ShieldAlert, Loader2, Users, LogOut } from "lucide-react";
+import { CheckCircle, ShieldAlert, Loader2, Users, LogOut, Building2 } from "lucide-react";
 import toast from "react-hot-toast";
 
 export default function ScanPage() {
@@ -34,19 +34,31 @@ export default function ScanPage() {
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   };
 
-  // 1. Fetch Business Profile
+  // 1. 🟢 FETCH BUSINESS IDENTITY (Real-time listener)
   useEffect(() => {
-    async function fetchProfile() {
-      if (!businessId) return setLoadingBusiness(false);
-      try {
-        const userRef = doc(db, "users", businessId);
-        const settingsRef = doc(db, "business_settings", businessId);
-        const [uSnap, sSnap] = await Promise.all([getDoc(userRef), getDoc(settingsRef)]);
-        if (uSnap.exists()) setBusinessData({ ...uSnap.data(), settings: sSnap.exists() ? sSnap.data() : {} });
-      } catch (err) { toast.error("Handshake failed"); }
-      finally { setLoadingBusiness(false); }
+    if (!businessId) {
+      setLoadingBusiness(false);
+      return;
     }
-    fetchProfile();
+
+    // Listener for User (Business Name/Logo)
+    const unsubUser = onSnapshot(doc(db, "users", businessId), (uSnap) => {
+      // Fetch settings once separately
+      getDoc(doc(db, "business_settings", businessId)).then(sSnap => {
+        if (uSnap.exists()) {
+          setBusinessData({ 
+            ...uSnap.data(), 
+            settings: sSnap.exists() ? sSnap.data() : {} 
+          });
+        }
+        setLoadingBusiness(false);
+      });
+    }, (err) => {
+      toast.error("Handshake failed");
+      setLoadingBusiness(false);
+    });
+
+    return () => unsubUser();
   }, [businessId]);
 
   // 2. Real-time check: Has user scanned today?
@@ -107,6 +119,7 @@ export default function ScanPage() {
       try {
         const isOut = hasCheckedIn && !hasCheckedOut;
         let status = "Present";
+        const finalUserName = user.displayName || user.email.split('@')[0];
         
         if (!isOut) {
           const [h, m] = (rules.shiftStart || "09:00").split(":").map(Number);
@@ -116,11 +129,21 @@ export default function ScanPage() {
           status = "Checked-Out";
         }
 
+        const userProfileRef = doc(db, "users", user.uid);
+        await setDoc(userProfileRef, {
+          uid: user.uid,
+          businessId: businessId, 
+          displayName: finalUserName,
+          email: user.email,
+          role: "employee",
+          lastActive: serverTimestamp()
+        }, { merge: true });
+
         await addDoc(collection(db, "attendance_logs"), {
           businessId,
           businessName: businessData.businessName,
           userId: user.uid,
-          userName: user.displayName || user.email.split('@')[0],
+          userName: finalUserName,
           status,
           timestamp: serverTimestamp(),
           location: { lat: latitude, lng: longitude },
@@ -129,7 +152,10 @@ export default function ScanPage() {
 
         toast.success(isOut ? "Goodbye! Session ended." : `Verified: ${status}`, { id: toastId });
         if (isOut) setIsSuccess(false);
-      } catch (e) { toast.error("Sync error", { id: toastId }); }
+      } catch (e) { 
+        console.error(e);
+        toast.error("Sync error", { id: toastId }); 
+      }
       finally { setIsProcessing(false); }
     }, () => { toast.error("GPS Required", { id: toastId }); setIsProcessing(false); }, { enableHighAccuracy: true });
   };
@@ -141,7 +167,6 @@ export default function ScanPage() {
     </div>
   );
 
-  // Success Screen (User is Clocked In)
   if (isSuccess && !hasCheckedOut) {
     return (
       <div className="min-h-screen bg-slate-950 text-white p-6 flex flex-col items-center animate-in zoom-in duration-500">
@@ -160,38 +185,48 @@ export default function ScanPage() {
         </div>
 
         <div className="w-full max-w-md bg-slate-900/50 rounded-[3rem] p-8 border border-white/5 backdrop-blur-xl">
-           <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-400 mb-6 flex items-center gap-2">
-             <Users size={14} /> Active Coworkers
-           </h3>
-           <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-             {coworkers.map((w) => (
-               <div key={w.id} className="flex justify-between items-center p-4 bg-white/5 rounded-2xl border border-white/5">
-                 <div className="flex items-center gap-3">
-                   <div className="h-10 w-10 rounded-xl bg-slate-800 flex items-center justify-center font-black text-blue-400">{w.userName?.charAt(0)}</div>
-                   <div>
-                     <p className="text-sm font-bold">{w.userName}</p>
-                     <p className="text-[9px] text-slate-500 uppercase font-black">{w.type === 'Check_Out' ? 'Left' : 'Arrived'} @ {w.timestamp?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
-                   </div>
-                 </div>
-                 <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase ${w.type === 'Check_Out' ? 'bg-slate-700 text-slate-400' : w.status === 'Late' ? 'bg-rose-500/10 text-rose-400' : 'bg-emerald-500/10 text-emerald-400'}`}>{w.status}</span>
-               </div>
-             ))}
-           </div>
+            <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-400 mb-6 flex items-center gap-2">
+              <Users size={14} /> Active Coworkers
+            </h3>
+            <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+              {coworkers.map((w) => (
+                <div key={w.id} className="flex justify-between items-center p-4 bg-white/5 rounded-2xl border border-white/5">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-xl bg-slate-800 flex items-center justify-center font-black text-blue-400 uppercase">
+                      {w.userName?.charAt(0)}
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold">{w.userName}</p>
+                      <p className="text-[9px] text-slate-500 uppercase font-black">{w.type === 'Check_Out' ? 'Left' : 'Arrived'} @ {w.timestamp?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                    </div>
+                  </div>
+                  <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase ${w.type === 'Check_Out' ? 'bg-slate-700 text-slate-400' : w.status === 'Late' ? 'bg-rose-500/10 text-rose-400' : 'bg-emerald-500/10 text-emerald-400'}`}>{w.status}</span>
+                </div>
+              ))}
+            </div>
         </div>
       </div>
     );
   }
 
-  // Initial Scan Screen / Check-Out Success
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-sm bg-white rounded-[4rem] p-10 shadow-2xl animate-in fade-in slide-in-from-bottom-10 duration-700">
         <div className="text-center mb-10">
-          <div className="w-24 h-24 bg-slate-900 rounded-[2.5rem] mx-auto mb-6 flex items-center justify-center shadow-2xl ring-8 ring-slate-50">
-            <img src={`https://ui-avatars.com/api/?name=${businessData?.businessName}&background=0f172a&color=fff&bold=true`} className="w-full h-full object-cover" alt="Logo" />
+          
+          {/* 🟢 UPDATED LOGO CONTAINER */}
+          <div className="w-24 h-24 bg-slate-100 rounded-[2.5rem] mx-auto mb-6 flex items-center justify-center shadow-2xl ring-8 ring-slate-50 overflow-hidden">
+            {businessData?.photoURL ? (
+              <img src={businessData.photoURL} className="w-full h-full object-cover" alt="Logo" />
+            ) : (
+              <Building2 className="text-slate-300" size={40} />
+            )}
           </div>
-          <h2 className="text-3xl font-black text-slate-900 tracking-tighter leading-none">{businessData?.businessName}</h2>
-          <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mt-4 bg-blue-50 px-4 py-2 rounded-full inline-block">Security Terminal</p>
+
+          <h2 className="text-3xl font-black text-slate-900 tracking-tighter leading-none">
+            {businessData?.businessName || "Security Terminal"}
+          </h2>
+          <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mt-4 bg-blue-50 px-4 py-2 rounded-full inline-block">Presence Terminal</p>
         </div>
 
         {hasCheckedOut ? (

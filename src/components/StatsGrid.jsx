@@ -1,5 +1,5 @@
 import StatsCard from "./StatsCard";
-import { Users, Clock, AlertTriangle, Coffee } from "lucide-react";
+import { Users, Clock, AlertTriangle, LogOut } from "lucide-react";
 
 export default function StatsGrid({ stats = {} }) {
   // Helper to check if data is loaded
@@ -31,15 +31,15 @@ export default function StatsGrid({ stats = {} }) {
         value={hasData ? stats.lateCount : "---"} 
         icon={AlertTriangle} 
         trend="+2%"
-        trendType="bad" // Lateness increasing is bad
+        trendType="bad" 
       />
 
-      {/* 4. ON LEAVE / BREAK */}
+      {/* 4. CHECKED OUT (Renamed from On Leave) */}
       <StatsCard 
-        title="On Break" 
-        value={hasData ? stats.onLeave : "---"} 
-        icon={Coffee} 
-        trend="0%"
+        title="Checked Out" 
+        value={hasData ? (stats.checkedOutCount || 0) : "---"} 
+        icon={LogOut} 
+        trend="Live"
         trendType="neutral"
       />
     </div>
