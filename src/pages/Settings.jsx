@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { db } from "../lib/firebase";
 import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import { useAuth } from "../context/AuthContext";
-import { Save, Clock, MapPin, Loader2, Target, Building2, Upload, X, Navigation } from "lucide-react";
+import { Save, Clock, MapPin, Loader2, Target, Building2, Upload, X, Navigation, ShieldCheck } from "lucide-react";
 import { toast } from "react-hot-toast";
 import AdminQR from "../components/AdminQR";
 
@@ -18,7 +18,7 @@ export default function Settings() {
     shiftStart: "09:00",
     gracePeriod: 15,
     location: { lat: 0, lng: 0 }, 
-    geofenceRadius: 100 
+    geofenceRadius: 150 // Standardized to 150m for better reliability
   });
 
   useEffect(() => {
@@ -37,7 +37,7 @@ export default function Settings() {
           businessName: userData.businessName || "",
           photoURL: userData.photoURL || "",
           location: rulesData.location || { lat: 0, lng: 0 },
-          geofenceRadius: rulesData.geofenceRadius || 100,
+          geofenceRadius: rulesData.geofenceRadius || 150,
           shiftStart: rulesData.shiftStart || "09:00",
           gracePeriod: rulesData.gracePeriod || 15
         });
@@ -66,7 +66,7 @@ export default function Settings() {
     if (config.location.lat === 0) return toast.error("Please lock a GPS location first!");
     
     setIsSaving(true);
-    const toastId = toast.loading("Saving configuration...");
+    const toastId = toast.loading("Deploying Terminal Settings...");
     try {
       const docRef = doc(db, "business_settings", user.uid);
       const userRef = doc(db, "users", user.uid);
@@ -77,7 +77,7 @@ export default function Settings() {
         updateDoc(userRef, { businessName, photoURL })
       ]);
       
-      toast.success("Settings live!", { id: toastId });
+      toast.success("Terminal Synced & Live!", { id: toastId });
     } catch (error) {
       toast.error("Update failed", { id: toastId });
     } finally {
@@ -85,29 +85,30 @@ export default function Settings() {
     }
   };
 
-  // --- UNIVERSAL GPS LOCK (WORKS ANYWHERE IN THE WORLD) ---
+  // --- ENHANCED GLOBAL GPS LOCK ---
   const setCurrentLocation = () => {
     setIsLocating(true);
-    const toastId = toast.loading("Connecting to Global Satellites...", { duration: 10000 });
+    const toastId = toast.loading("Calibrating Precision Lock...", { duration: 10000 });
     
     const geoOptions = {
       enableHighAccuracy: true,
-      timeout: 15000,
+      timeout: 20000,
       maximumAge: 0 
     };
 
     let bestReading = null;
     
-    // We use watchPosition to "warm up" the GPS chip for better accuracy
     const watchId = navigator.geolocation.watchPosition((pos) => {
+      // Logic: Prioritize the reading with the smallest accuracy error (meters)
       if (!bestReading || pos.coords.accuracy < bestReading.coords.accuracy) {
         bestReading = pos;
       }
-      // If we get high accuracy (under 15m), we can lock it early
-      if (pos.coords.accuracy < 15) finalize(pos);
+      
+      // If accuracy is ultra-sharp (under 10 meters), lock it immediately
+      if (pos.coords.accuracy < 10) finalize(pos);
     }, (err) => {
       setIsLocating(false);
-      toast.error("GPS Error: Please enable location access.", { id: toastId });
+      toast.error("GPS Denied. Check browser location permissions.", { id: toastId });
     }, geoOptions);
 
     const finalize = (pos) => {
@@ -117,21 +118,21 @@ export default function Settings() {
         location: { lat: pos.coords.latitude, lng: pos.coords.longitude }
       }));
       setIsLocating(false);
-      toast.success(`Position Locked! Accuracy: ${Math.round(pos.coords.accuracy)}m`, { id: toastId });
+      toast.success(`Success! Accuracy: ${Math.round(pos.coords.accuracy)}m`, { id: toastId });
     };
 
-    // Auto-finalize after 8 seconds if no perfect lock found
+    // Auto-lock the best found reading after 10 seconds if no perfect lock
     setTimeout(() => {
       if (bestReading && isLocating) finalize(bestReading);
       navigator.geolocation.clearWatch(watchId);
       setIsLocating(false);
-    }, 8000);
+    }, 10000);
   };
 
   if (loading) return (
     <div className="h-96 flex flex-col items-center justify-center text-slate-400">
       <Loader2 className="animate-spin mb-4" size={40} />
-      <p className="font-black uppercase text-[10px] tracking-widest text-center">Contacting Terminal...</p>
+      <p className="font-black uppercase text-[10px] tracking-widest text-center">Syncing with Firebase...</p>
     </div>
   );
 
@@ -139,8 +140,8 @@ export default function Settings() {
     <div className="max-w-6xl mx-auto space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20 px-4">
       <div className="flex justify-between items-end">
         <div>
-          <h2 className="text-4xl font-black text-slate-900 tracking-tighter italic">Terminal Settings</h2>
-          <p className="text-slate-500 text-sm font-medium mt-1">Global GPS Geofence Control</p>
+          <h2 className="text-4xl font-black text-slate-900 tracking-tighter italic uppercase">Terminal Settings</h2>
+          <p className="text-slate-500 text-sm font-medium mt-1 italic">Precision Geofencing & Identity Control</p>
         </div>
       </div>
 
@@ -152,25 +153,25 @@ export default function Settings() {
               <div className="w-12 h-12 bg-slate-900 text-white rounded-2xl flex items-center justify-center">
                 <Building2 size={24} />
               </div>
-              <h3 className="font-black text-slate-900 text-lg">Identity</h3>
+              <h3 className="font-black text-slate-900 text-lg uppercase tracking-tight">Business Profile</h3>
             </div>
             
             <div className="space-y-8">
               <div className="space-y-3">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Business Name</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Company Title</label>
                 <input 
                   type="text" 
                   value={config.businessName}
                   onChange={(e) => setConfig({...config, businessName: e.target.value})}
-                  className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-2xl font-bold text-slate-800 transition-all outline-none"
-                  placeholder="Business Name"
+                  className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-2xl font-bold text-slate-800 transition-all outline-none shadow-inner"
+                  placeholder="e.g. Rad5 Tech Hub"
                 />
               </div>
 
               <div className="space-y-3">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Logo</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Brand Logo</label>
                 <div className="flex flex-col md:flex-row gap-6 items-center">
-                  <div className="w-24 h-24 bg-slate-100 rounded-[2rem] flex items-center justify-center overflow-hidden border-4 border-white shadow-inner relative group">
+                  <div className="w-24 h-24 bg-slate-100 rounded-[2rem] flex items-center justify-center overflow-hidden border-4 border-white shadow-lg relative group">
                     {config.photoURL ? (
                       <>
                         <img src={config.photoURL} className="w-full h-full object-cover" alt="Preview" />
@@ -183,7 +184,7 @@ export default function Settings() {
                     )}
                   </div>
                   <label className="flex-1 w-full p-4 bg-blue-50 border-2 border-dashed border-blue-200 text-blue-600 rounded-2xl cursor-pointer hover:bg-blue-100 transition-all font-bold text-sm text-center">
-                    <Upload size={18} className="inline mr-2"/> Upload Logo
+                    <Upload size={18} className="inline mr-2"/> Change Logo
                     <input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} />
                   </label>
                 </div>
@@ -197,7 +198,7 @@ export default function Settings() {
                 <div className="w-12 h-12 bg-emerald-500 text-white rounded-2xl flex items-center justify-center">
                   <MapPin size={24} />
                 </div>
-                <h3 className="font-black text-slate-900 text-lg">GPS Guardrail</h3>
+                <h3 className="font-black text-slate-900 text-lg uppercase tracking-tight">GPS Guardrail</h3>
               </div>
               <button 
                 type="button"
@@ -206,28 +207,31 @@ export default function Settings() {
                 className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-2xl hover:bg-emerald-600 transition-all shadow-lg font-black text-[10px] uppercase tracking-widest disabled:opacity-50"
               >
                 {isLocating ? <Loader2 className="animate-spin" size={18} /> : <Target size={18} />} 
-                {isLocating ? "Syncing..." : "Lock Current GPS"}
+                {isLocating ? "Syncing..." : "Lock Hub Location"}
               </button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               <div className="space-y-3">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Lock</label>
-                <div className={`p-5 rounded-2xl flex items-center gap-3 border-2 ${config.location.lat === 0 ? 'bg-rose-50 border-rose-100 text-rose-600' : 'bg-slate-50 border-transparent text-slate-700'}`}>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Hub Coordinates</label>
+                <div className={`p-5 rounded-2xl flex items-center gap-3 border-2 transition-colors ${config.location.lat === 0 ? 'bg-rose-50 border-rose-100 text-rose-600' : 'bg-slate-50 border-transparent text-slate-700'}`}>
                   <Navigation size={16} />
-                  <span className="font-mono font-bold">
+                  <span className="font-mono font-bold tracking-tight">
                     {config.location.lat.toFixed(6)}, {config.location.lng.toFixed(6)}
                   </span>
                 </div>
               </div>
               <div className="space-y-3">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Radius (Meters)</label>
-                <input 
-                  type="number" 
-                  value={config.geofenceRadius}
-                  onChange={(e) => setConfig({...config, geofenceRadius: parseInt(e.target.value) || 0})}
-                  className="w-full p-5 bg-slate-50 rounded-2xl font-black text-xl text-slate-800 outline-none"
-                />
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Allowed Radius (Meters)</label>
+                <div className="relative">
+                   <input 
+                    type="number" 
+                    value={config.geofenceRadius}
+                    onChange={(e) => setConfig({...config, geofenceRadius: parseInt(e.target.value) || 0})}
+                    className="w-full p-5 bg-slate-50 rounded-2xl font-black text-xl text-slate-800 outline-none focus:ring-2 ring-blue-500 shadow-inner"
+                  />
+                  <div className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none font-bold">m</div>
+                </div>
               </div>
             </div>
           </section>
@@ -236,17 +240,20 @@ export default function Settings() {
         </div>
 
         <div className="lg:col-span-1">
-          <div className="bg-slate-900 p-8 rounded-[3rem] sticky top-8 text-white shadow-2xl">
-            <h4 className="font-black uppercase text-[10px] tracking-widest text-blue-400 mb-4">Deploy Rules</h4>
-            <p className="text-sm opacity-70 mb-8 leading-relaxed">
-              Ensure you are physically at your office/site center when clicking "Lock Current GPS". 
+          <div className="bg-slate-900 p-8 rounded-[3rem] sticky top-8 text-white shadow-2xl border border-slate-800">
+            <div className="flex items-center gap-2 mb-4 text-emerald-400">
+               <ShieldCheck size={18} />
+               <h4 className="font-black uppercase text-[10px] tracking-widest">Security Deployment</h4>
+            </div>
+            <p className="text-sm opacity-70 mb-8 leading-relaxed font-medium">
+              Updating these rules will instantly affect all staff check-ins. A radius of <span className="text-white font-bold">150m-200m</span> is recommended to ensure smooth scans inside buildings.
             </p>
             <button 
               disabled={isSaving || isLocating}
               type="submit"
-              className="w-full py-6 bg-blue-600 rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-blue-500 transition-all flex items-center justify-center gap-3 shadow-xl disabled:opacity-50"
+              className="w-full py-6 bg-blue-600 rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-blue-500 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-3 shadow-xl shadow-blue-900/40 disabled:opacity-50"
             >
-              {isSaving ? "Syncing..." : "Apply Global Rules"}
+              {isSaving ? "Syncing Firebase..." : "Save Terminal Rules"}
               <Save size={20} />
             </button>
           </div>
