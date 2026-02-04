@@ -22,11 +22,12 @@ export default function Dashboard() {
     totalCount: 0,
     presentCount: 0,
     lateCount: 0,
-    checkedOutCount: 0 // 🟢 Added for the new StatsCard
+    checkedOutCount: 0 
   });
 
   const scanUrl = `${window.location.origin}/scan?bid=${user?.uid}`;
 
+  // 1. Fetch Business Profile (Logo/Name)
   useEffect(() => {
     if (!user?.uid) return;
     const unsub = onSnapshot(doc(db, "users", user.uid), (docSnap) => {
@@ -37,6 +38,7 @@ export default function Dashboard() {
     return () => unsub();
   }, [user]);
 
+  // 2. Fetch Hidden/Dismissed Intelligence Alerts
   useEffect(() => {
     if (!user) return;
     const q = query(collection(db, "dismissed_alerts"), where("businessId", "==", user.uid));
@@ -46,27 +48,28 @@ export default function Dashboard() {
     return () => unsubscribe();
   }, [user]);
 
+  // 3. Main Logs Listener & Stats Calculator
   useEffect(() => {
     if (!user) return;
-    const q = query(collection(db, "attendance_logs"), where("businessId", "==", user.uid), orderBy("timestamp", "desc"));
+    const q = query(
+      collection(db, "attendance_logs"), 
+      where("businessId", "==", user.uid), 
+      orderBy("timestamp", "desc")
+    );
+
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetchedLogs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       
       if (fetchedLogs.length > 0) {
         const newestLog = fetchedLogs[0];
         
+        // Trigger Toast for new activity
         if (lastLogId.current && newestLog.id !== lastLogId.current) {
-          const isCheckOut = newestLog.status === "Checked-Out" || newestLog.status === "On Break" || newestLog.type === "Check_Out";
-          const displayStatus = isCheckOut ? "Checked-Out" : newestLog.status;
+          const isCheckOut = newestLog.type === "Check_Out" || newestLog.status === "Checked-Out";
+          const icon = isCheckOut ? "🚪" : newestLog.status === "Late" ? "⏰" : "✅";
           
-          const getIcon = () => {
-            if (isCheckOut) return "🚪";
-            if (newestLog.status === "On-Time") return "✅";
-            return "⚠️";
-          };
-
-          toast(`${newestLog.userName} is ${displayStatus}!`, {
-            icon: getIcon(),
+          toast(`${newestLog.userName} is ${newestLog.status}!`, {
+            icon,
             style: { borderRadius: '24px', background: '#0f172a', color: '#fff', fontSize: '12px', fontWeight: '900', padding: '16px 24px' }
           });
         }
@@ -74,23 +77,37 @@ export default function Dashboard() {
       }
       
       setLogs(fetchedLogs);
-      const today = new Date().toLocaleDateString();
-      const todayLogs = fetchedLogs.filter(l => l.timestamp?.toDate().toLocaleDateString() === today);
+
+      // --- CALCULATE TODAY'S STATS ---
+      const todayStr = new Date().toLocaleDateString();
+      const todayLogs = fetchedLogs.filter(l => 
+        l.timestamp?.toDate().toLocaleDateString() === todayStr
+      );
       
-      // 🟢 Logic: Unique users who checked in today and haven't checked out as their last action
-      const uniqueCheckIns = new Set(todayLogs.filter(l => l.type !== "Check_Out" && l.status !== "Checked-Out").map(l => l.userId));
+      // Get most recent status for each user today
+      const userLatestStatus = {};
+      todayLogs.forEach(log => {
+        if (!userLatestStatus[log.userId]) {
+          userLatestStatus[log.userId] = log.type;
+        }
+      });
+
+      const currentlyPresent = Object.values(userLatestStatus).filter(type => type === "QR_Scan").length;
+      const totalCheckedOutToday = todayLogs.filter(l => l.type === "Check_Out").length;
+      const totalLateToday = todayLogs.filter(l => l.status === "Late" && l.type === "QR_Scan").length;
 
       setStats({
         totalCount: fetchedLogs.length,
-        presentCount: uniqueCheckIns.size, 
-        lateCount: todayLogs.filter(l => l.status === "Late").length,
-        // 🟢 Logic: Count everyone who has a "Checked-Out" or "Check_Out" entry today
-        checkedOutCount: todayLogs.filter(l => l.status === "Checked-Out" || l.status === "On Break" || l.type === "Check_Out").length
+        presentCount: currentlyPresent, 
+        lateCount: totalLateToday,
+        checkedOutCount: totalCheckedOutToday
       });
     });
+
     return () => unsubscribe();
   }, [user]);
 
+  // 4. Intelligence Engine (Pattern Detection)
   useEffect(() => {
     if (logs.length > 0 && user?.uid) {
       const patterns = detectPatterns(logs);
@@ -114,7 +131,6 @@ export default function Dashboard() {
         userName: userName,
         type: type
       });
-      toast.success("Alert hidden");
     } catch (error) {
       toast.error("Sync failed");
     }
@@ -137,10 +153,9 @@ export default function Dashboard() {
   const downloadQR = () => {
     const canvas = document.getElementById("terminal-qr");
     if (!canvas) return;
-    const url = canvas.toDataURL("image/png");
     const link = document.createElement("a");
-    link.href = url;
-    link.download = `terminal-qr.png`;
+    link.href = canvas.toDataURL("image/png");
+    link.download = `${businessProfile?.businessName || 'terminal'}-qr.png`;
     link.click();
   };
 
@@ -149,12 +164,12 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         
         {/* QR Terminal Card */}
-        <div className="lg:col-span-4 bg-white p-8 rounded-[3.5rem] border border-slate-100 shadow-2xl shadow-slate-200/50 flex flex-col items-center text-center relative overflow-hidden group">
+        <div className="lg:col-span-4 bg-white p-8 rounded-[3.5rem] border border-slate-100 shadow-2xl flex flex-col items-center text-center relative overflow-hidden group">
           <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
             <Sparkles size={60} className="text-blue-600" />
           </div>
           <div className="flex justify-between w-full mb-6 px-2">
-            <button onClick={() => { navigator.clipboard.writeText(scanUrl); toast.success("Copied!"); }} className="p-3 bg-slate-50 text-slate-400 hover:text-blue-600 rounded-2xl transition-all">
+            <button onClick={() => { navigator.clipboard.writeText(scanUrl); toast.success("Link Copied!"); }} className="p-3 bg-slate-50 text-slate-400 hover:text-blue-600 rounded-2xl transition-all">
               <Copy size={18} />
             </button>
             <button onClick={downloadQR} className="p-3 bg-slate-50 text-slate-400 hover:text-blue-600 rounded-2xl transition-all">
@@ -176,10 +191,12 @@ export default function Dashboard() {
             {businessProfile?.businessName || "Terminal Active"}
           </h2>
 
-          <p className="text-[9px] text-blue-500 font-black uppercase tracking-[0.3em] mb-8">Ref: {user?.uid?.slice(0, 8)}</p>
-          <div className="p-8 bg-slate-900 rounded-[3rem] shadow-2xl shadow-blue-900/20 mb-8 transform group-hover:scale-105 transition-transform duration-500">
+          <p className="text-[9px] text-blue-500 font-black uppercase tracking-[0.3em] mb-8">BID: {user?.uid?.slice(0, 8)}</p>
+          
+          <div className="p-8 bg-slate-900 rounded-[3rem] shadow-2xl mb-8 transform group-hover:scale-105 transition-transform duration-500">
             <QRCodeCanvas id="terminal-qr" value={scanUrl} size={160} level="H" fgColor="#ffffff" bgColor="transparent" />
           </div>
+          
           <div className="flex items-center gap-3 px-6 py-3 bg-emerald-50 rounded-full border border-emerald-100">
             <div className="h-2 w-2 bg-emerald-500 rounded-full animate-pulse" />
             <p className="text-[10px] text-emerald-700 font-black uppercase tracking-widest">Live Secure Terminal</p>
@@ -191,7 +208,7 @@ export default function Dashboard() {
             <div className="flex justify-between items-end mb-2">
                 <div>
                   <h1 className="text-5xl font-black text-slate-900 tracking-tighter italic">Overview</h1>
-                  <p className="text-slate-400 font-bold text-sm ml-1">Real-time personnel behavior</p>
+                  <p className="text-slate-400 font-bold text-sm ml-1">Real-time personnel monitoring</p>
                 </div>
                 <button onClick={() => window.print()} className="p-4 bg-slate-900 text-white rounded-2xl hover:bg-blue-600 transition-all shadow-xl">
                   <Printer size={20} />
@@ -200,7 +217,8 @@ export default function Dashboard() {
             
             <StatsGrid stats={stats} />
 
-            <div className="bg-slate-900 p-8 rounded-[3rem] shadow-2xl shadow-blue-900/20 relative overflow-hidden transition-all duration-500">
+            {/* Intelligence Section */}
+            <div className="bg-slate-900 p-8 rounded-[3rem] shadow-2xl relative overflow-hidden">
                 <div className="flex justify-between items-center mb-6">
                   <h3 className="text-blue-400 font-black flex items-center gap-3 text-xs uppercase tracking-[0.3em]">
                     <ShieldAlert size={18} />
@@ -213,7 +231,7 @@ export default function Dashboard() {
                       className="flex items-center gap-2 text-[10px] font-black text-blue-400/40 hover:text-blue-400 uppercase tracking-widest transition-all"
                     >
                       <RotateCcw size={12} />
-                      Reset ({cloudDismissed.length})
+                      Reset Hidden ({cloudDismissed.length})
                     </button>
                   )}
                 </div>
@@ -237,7 +255,7 @@ export default function Dashboard() {
                   ) : (
                     <div className="col-span-2 py-6 flex flex-col items-center justify-center opacity-20">
                       <Zap size={24} className="text-white mb-2" />
-                      <p className="text-white text-[10px] font-black uppercase tracking-widest">Scanning for anomalies...</p>
+                      <p className="text-white text-[10px] font-black uppercase tracking-widest">No anomalies detected</p>
                     </div>
                   )}
                 </div>
@@ -246,14 +264,14 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
-        <div className="xl:col-span-8 bg-white p-4 rounded-[3.5rem] border border-slate-100 shadow-2xl shadow-slate-200/40 min-h-[450px]">
+        <div className="xl:col-span-8 bg-white p-4 rounded-[3.5rem] border border-slate-100 shadow-2xl min-h-[450px]">
            <AttendanceChart logs={logs} /> 
         </div>
-        <div className="xl:col-span-4 bg-white p-8 rounded-[3.5rem] border border-slate-100 shadow-2xl shadow-slate-200/40 flex flex-col h-[520px]">
+        <div className="xl:col-span-4 bg-white p-8 rounded-[3.5rem] border border-slate-100 shadow-2xl flex flex-col h-[520px]">
           <div className="flex justify-between items-center mb-8">
             <div className="flex items-center gap-2">
               <Activity size={18} className="text-blue-600" />
-              <h3 className="font-black text-slate-900 text-xs uppercase tracking-widest">Live Stream</h3>
+              <h3 className="font-black text-slate-900 text-xs uppercase tracking-widest">Live Activity</h3>
             </div>
             <div className="flex items-center gap-2 bg-blue-50 px-4 py-2 rounded-full border border-blue-100">
               <span className="flex h-2 w-2 rounded-full bg-blue-600 animate-ping"></span>
