@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { db } from "../lib/firebase";
 import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import { useAuth } from "../context/AuthContext";
-import { Save, Clock, MapPin, Loader2, Target, Info, Building2, Upload, X } from "lucide-react";
+import { Save, Clock, MapPin, Loader2, Target, Building2, Upload, X, Navigation } from "lucide-react";
 import { toast } from "react-hot-toast";
 import AdminQR from "../components/AdminQR";
 
@@ -24,7 +24,6 @@ export default function Settings() {
     async function fetchSettings() {
       if (!user?.uid) return;
       try {
-        // Fetch rules and user identity in parallel
         const docRef = doc(db, "business_settings", user.uid);
         const userRef = doc(db, "users", user.uid);
         
@@ -54,63 +53,67 @@ export default function Settings() {
     fetchSettings();
   }, [user]);
 
-  // Handle local image upload (converts to Base64 for Firestore)
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
-      if (file.size > 1024 * 1024) { // 1MB limit for Base64 strings
+      if (file.size > 1024 * 1024) {
         return toast.error("Image too large (Max 1MB)");
       }
       const reader = new FileReader();
       reader.onloadend = () => {
         setConfig({ ...config, photoURL: reader.result });
-        toast.success("Image preview loaded!");
       };
       reader.readAsDataURL(file);
     }
   };
 
   const handleSave = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
     setIsSaving(true);
+    const toastId = toast.loading("Saving configuration...");
     try {
-      // 1. Save Rules
       const docRef = doc(db, "business_settings", user.uid);
       const { businessName, photoURL, ...rules } = config;
+      
+      // Safety check: Don't save 0,0
+      if (rules.location.lat === 0) {
+        toast.error("Please set a valid GPS location first!", { id: toastId });
+        return setIsSaving(false);
+      }
+
       await setDoc(docRef, rules, { merge: true });
 
-      // 2. Save Identity to User profile
       const userRef = doc(db, "users", user.uid);
       await updateDoc(userRef, {
         businessName: config.businessName,
         photoURL: config.photoURL
       });
       
-      toast.success("Business settings synced!");
+      toast.success("Settings live!", { id: toastId });
     } catch (error) {
-      console.error(error);
-      toast.error("Failed to update settings.");
+      toast.error("Update failed", { id: toastId });
     } finally {
       setIsSaving(false);
     }
   };
 
   const setCurrentLocation = () => {
+    toast.loading("Fetching high-accuracy GPS...", { duration: 2000 });
     navigator.geolocation.getCurrentPosition((pos) => {
       setConfig({
         ...config,
         location: { lat: pos.coords.latitude, lng: pos.coords.longitude }
       });
-      toast.success("GPS Captured!");
+      toast.success("Location captured! Remember to save.");
     }, (err) => {
-      toast.error("GPS Denied. Please enable location.");
-    }, { enableHighAccuracy: true });
+      toast.error("GPS Denied. Check browser permissions.");
+    }, { enableHighAccuracy: true, timeout: 10000 });
   };
 
   if (loading) return (
     <div className="h-96 flex flex-col items-center justify-center text-slate-400">
       <Loader2 className="animate-spin mb-4" size={40} />
-      <p className="font-black uppercase text-[10px] tracking-widest">Loading encrypted rules...</p>
+      <p className="font-black uppercase text-[10px] tracking-widest">Loading rules...</p>
     </div>
   );
 
@@ -118,21 +121,21 @@ export default function Settings() {
     <div className="max-w-6xl mx-auto space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20 px-4">
       <div className="flex justify-between items-end">
         <div>
-          <h2 className="text-4xl font-black text-slate-900 tracking-tighter italic">Workplace Setup</h2>
-          <p className="text-slate-500 text-sm font-medium mt-1">Configure identity and operational boundaries.</p>
+          <h2 className="text-4xl font-black text-slate-900 tracking-tighter italic">Terminal Settings</h2>
+          <p className="text-slate-500 text-sm font-medium mt-1">Manage your geofence and office rules.</p>
         </div>
       </div>
 
       <form onSubmit={handleSave} className="grid grid-cols-1 lg:grid-cols-3 gap-10">
         <div className="lg:col-span-2 space-y-10">
           
-          {/* Identity & Upload Section */}
+          {/* Business Identity */}
           <section className="bg-white p-8 md:p-10 rounded-[3.5rem] border border-slate-100 shadow-xl shadow-slate-200/30">
             <div className="flex items-center gap-4 mb-10">
               <div className="w-12 h-12 bg-slate-900 text-white rounded-2xl flex items-center justify-center">
                 <Building2 size={24} />
               </div>
-              <h3 className="font-black text-slate-900 text-lg">Business Identity</h3>
+              <h3 className="font-black text-slate-900 text-lg">Identity</h3>
             </div>
             
             <div className="space-y-8">
@@ -143,12 +146,12 @@ export default function Settings() {
                   value={config.businessName}
                   onChange={(e) => setConfig({...config, businessName: e.target.value})}
                   className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-2xl font-bold text-slate-800 transition-all outline-none"
-                  placeholder="Enter Business Name"
+                  placeholder="e.g. Acme Corp"
                 />
               </div>
 
               <div className="space-y-3">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Terminal Logo</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Logo</label>
                 <div className="flex flex-col md:flex-row gap-6 items-center">
                   <div className="w-24 h-24 bg-slate-100 rounded-[2rem] flex items-center justify-center overflow-hidden border-4 border-white shadow-inner relative group">
                     {config.photoURL ? (
@@ -166,52 +169,16 @@ export default function Settings() {
                       <Building2 className="text-slate-300" size={32} />
                     )}
                   </div>
-                  
-                  <div className="flex-1 w-full space-y-2">
-                    <label className="flex items-center justify-center gap-2 w-full p-4 bg-blue-50 border-2 border-dashed border-blue-200 text-blue-600 rounded-2xl cursor-pointer hover:bg-blue-100 transition-all font-bold text-sm">
-                      <Upload size={18} />
-                      Upload Logo
-                      <input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} />
-                    </label>
-                    <p className="text-[9px] text-slate-400 text-center uppercase tracking-tighter">Recommended: Square PNG/JPG (Max 1MB)</p>
-                  </div>
+                  <label className="flex-1 w-full p-4 bg-blue-50 border-2 border-dashed border-blue-200 text-blue-600 rounded-2xl cursor-pointer hover:bg-blue-100 transition-all font-bold text-sm text-center">
+                    <Upload size={18} className="inline mr-2"/> Upload Logo
+                    <input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} />
+                  </label>
                 </div>
               </div>
             </div>
           </section>
 
-          {/* Timing Parameters */}
-          <section className="bg-white p-8 md:p-10 rounded-[3.5rem] border border-slate-100 shadow-xl shadow-slate-200/30">
-            <div className="flex items-center gap-4 mb-10">
-              <div className="w-12 h-12 bg-blue-600 text-white rounded-2xl flex items-center justify-center">
-                <Clock size={24} />
-              </div>
-              <h3 className="font-black text-slate-900 text-lg">Shift Rules</h3>
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              <div className="space-y-3">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Shift Starts</label>
-                <input 
-                  type="time" 
-                  value={config.shiftStart}
-                  onChange={(e) => setConfig({...config, shiftStart: e.target.value})}
-                  className="w-full p-5 bg-slate-50 rounded-2xl font-black text-xl text-slate-800 outline-none"
-                />
-              </div>
-              <div className="space-y-3">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Grace Period (Mins)</label>
-                <input 
-                  type="number" 
-                  value={config.gracePeriod}
-                  onChange={(e) => setConfig({...config, gracePeriod: parseInt(e.target.value) || 0})}
-                  className="w-full p-5 bg-slate-50 rounded-2xl font-black text-xl text-slate-800 outline-none"
-                />
-              </div>
-            </div>
-          </section>
-
-          {/* Geofence Rules */}
+          {/* GPS Guardrail */}
           <section className="bg-white p-8 md:p-10 rounded-[3.5rem] border border-slate-100 shadow-xl shadow-slate-200/30">
             <div className="flex items-center justify-between mb-10">
               <div className="flex items-center gap-4">
@@ -223,23 +190,25 @@ export default function Settings() {
               <button 
                 type="button"
                 onClick={setCurrentLocation}
-                className="p-4 bg-slate-900 text-white rounded-2xl hover:scale-105 active:scale-95 transition-all shadow-lg"
+                className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-2xl hover:bg-emerald-600 transition-all shadow-lg font-black text-[10px] uppercase tracking-widest"
               >
-                <Target size={20} />
+                <Target size={18} /> Get Current GPS
               </button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               <div className="space-y-3">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Saved Coordinates</label>
-                <div className="flex gap-2">
-                  <div className="flex-1 p-5 bg-slate-100 rounded-2xl font-bold text-slate-500 text-xs">
-                    {config.location.lat.toFixed(5)}, {config.location.lng.toFixed(5)}
-                  </div>
+                <div className={`p-5 rounded-2xl flex items-center gap-3 border-2 ${config.location.lat === 0 ? 'bg-rose-50 border-rose-100 text-rose-600' : 'bg-slate-50 border-transparent text-slate-700'}`}>
+                  <Navigation size={16} />
+                  <span className="font-mono font-bold">
+                    {config.location.lat.toFixed(6)}, {config.location.lng.toFixed(6)}
+                  </span>
                 </div>
+                {config.location.lat === 0 && <p className="text-[9px] text-rose-500 font-bold uppercase italic">* Location not set! Scanning will fail.</p>}
               </div>
               <div className="space-y-3">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Radius (Meters)</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Allowed Radius (Meters)</label>
                 <input 
                   type="number" 
                   value={config.geofenceRadius}
@@ -253,19 +222,19 @@ export default function Settings() {
           <AdminQR />
         </div>
 
-        {/* Sidebar Save Button */}
+        {/* Sidebar Save */}
         <div className="lg:col-span-1">
           <div className="bg-slate-900 p-8 rounded-[3rem] sticky top-8 text-white shadow-2xl">
-            <h4 className="font-black uppercase text-[10px] tracking-widest text-blue-400 mb-4">Verification</h4>
-            <p className="text-sm font-medium leading-relaxed opacity-70 mb-8">
-              Settings update instantly. The QR terminal will automatically reflect your new business name and logo.
+            <h4 className="font-black uppercase text-[10px] tracking-widest text-blue-400 mb-4">Finalize</h4>
+            <p className="text-sm opacity-70 mb-8 leading-relaxed">
+              Updating these rules affects all employee scans immediately. Ensure you are physically at the office when clicking "Get Current GPS".
             </p>
             <button 
               disabled={isSaving}
               type="submit"
-              className="w-full py-6 bg-blue-600 rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-blue-500 transition-all flex items-center justify-center gap-3 shadow-xl"
+              className="w-full py-6 bg-blue-600 rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-blue-500 transition-all flex items-center justify-center gap-3 shadow-xl disabled:opacity-50"
             >
-              {isSaving ? "Syncing..." : "Update Business"}
+              {isSaving ? "Syncing..." : "Save Settings"}
               <Save size={20} />
             </button>
           </div>
