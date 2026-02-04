@@ -10,6 +10,7 @@ export default function Settings() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isLocating, setIsLocating] = useState(false);
   
   const [config, setConfig] = useState({
     businessName: "",
@@ -26,11 +27,7 @@ export default function Settings() {
       try {
         const docRef = doc(db, "business_settings", user.uid);
         const userRef = doc(db, "users", user.uid);
-        
-        const [rulesSnap, userSnap] = await Promise.all([
-          getDoc(docRef),
-          getDoc(userRef)
-        ]);
+        const [rulesSnap, userSnap] = await Promise.all([getDoc(docRef), getDoc(userRef)]);
         
         const rulesData = rulesSnap.exists() ? rulesSnap.data() : {};
         const userData = userSnap.exists() ? userSnap.data() : {};
@@ -55,39 +52,30 @@ export default function Settings() {
 
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
-    if (file) {
-      if (file.size > 1024 * 1024) {
-        return toast.error("Image too large (Max 1MB)");
-      }
+    if (file && file.size <= 1024 * 1024) {
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setConfig({ ...config, photoURL: reader.result });
-      };
+      reader.onloadend = () => setConfig({ ...config, photoURL: reader.result });
       reader.readAsDataURL(file);
+    } else if (file) {
+      toast.error("Image too large (Max 1MB)");
     }
   };
 
   const handleSave = async (e) => {
     if (e) e.preventDefault();
+    if (config.location.lat === 0) return toast.error("Please lock a GPS location first!");
+    
     setIsSaving(true);
     const toastId = toast.loading("Saving configuration...");
     try {
       const docRef = doc(db, "business_settings", user.uid);
-      const { businessName, photoURL, ...rules } = config;
-      
-      // Safety check: Don't save 0,0
-      if (rules.location.lat === 0) {
-        toast.error("Please set a valid GPS location first!", { id: toastId });
-        return setIsSaving(false);
-      }
-
-      await setDoc(docRef, rules, { merge: true });
-
       const userRef = doc(db, "users", user.uid);
-      await updateDoc(userRef, {
-        businessName: config.businessName,
-        photoURL: config.photoURL
-      });
+      const { businessName, photoURL, ...rules } = config;
+
+      await Promise.all([
+        setDoc(docRef, rules, { merge: true }),
+        updateDoc(userRef, { businessName, photoURL })
+      ]);
       
       toast.success("Settings live!", { id: toastId });
     } catch (error) {
@@ -97,23 +85,53 @@ export default function Settings() {
     }
   };
 
+  // --- UNIVERSAL GPS LOCK (WORKS ANYWHERE IN THE WORLD) ---
   const setCurrentLocation = () => {
-    toast.loading("Fetching high-accuracy GPS...", { duration: 2000 });
-    navigator.geolocation.getCurrentPosition((pos) => {
-      setConfig({
-        ...config,
-        location: { lat: pos.coords.latitude, lng: pos.coords.longitude }
-      });
-      toast.success("Location captured! Remember to save.");
+    setIsLocating(true);
+    const toastId = toast.loading("Connecting to Global Satellites...", { duration: 10000 });
+    
+    const geoOptions = {
+      enableHighAccuracy: true,
+      timeout: 15000,
+      maximumAge: 0 
+    };
+
+    let bestReading = null;
+    
+    // We use watchPosition to "warm up" the GPS chip for better accuracy
+    const watchId = navigator.geolocation.watchPosition((pos) => {
+      if (!bestReading || pos.coords.accuracy < bestReading.coords.accuracy) {
+        bestReading = pos;
+      }
+      // If we get high accuracy (under 15m), we can lock it early
+      if (pos.coords.accuracy < 15) finalize(pos);
     }, (err) => {
-      toast.error("GPS Denied. Check browser permissions.");
-    }, { enableHighAccuracy: true, timeout: 10000 });
+      setIsLocating(false);
+      toast.error("GPS Error: Please enable location access.", { id: toastId });
+    }, geoOptions);
+
+    const finalize = (pos) => {
+      navigator.geolocation.clearWatch(watchId);
+      setConfig(prev => ({
+        ...prev,
+        location: { lat: pos.coords.latitude, lng: pos.coords.longitude }
+      }));
+      setIsLocating(false);
+      toast.success(`Position Locked! Accuracy: ${Math.round(pos.coords.accuracy)}m`, { id: toastId });
+    };
+
+    // Auto-finalize after 8 seconds if no perfect lock found
+    setTimeout(() => {
+      if (bestReading && isLocating) finalize(bestReading);
+      navigator.geolocation.clearWatch(watchId);
+      setIsLocating(false);
+    }, 8000);
   };
 
   if (loading) return (
     <div className="h-96 flex flex-col items-center justify-center text-slate-400">
       <Loader2 className="animate-spin mb-4" size={40} />
-      <p className="font-black uppercase text-[10px] tracking-widest">Loading rules...</p>
+      <p className="font-black uppercase text-[10px] tracking-widest text-center">Contacting Terminal...</p>
     </div>
   );
 
@@ -122,14 +140,13 @@ export default function Settings() {
       <div className="flex justify-between items-end">
         <div>
           <h2 className="text-4xl font-black text-slate-900 tracking-tighter italic">Terminal Settings</h2>
-          <p className="text-slate-500 text-sm font-medium mt-1">Manage your geofence and office rules.</p>
+          <p className="text-slate-500 text-sm font-medium mt-1">Global GPS Geofence Control</p>
         </div>
       </div>
 
       <form onSubmit={handleSave} className="grid grid-cols-1 lg:grid-cols-3 gap-10">
         <div className="lg:col-span-2 space-y-10">
           
-          {/* Business Identity */}
           <section className="bg-white p-8 md:p-10 rounded-[3.5rem] border border-slate-100 shadow-xl shadow-slate-200/30">
             <div className="flex items-center gap-4 mb-10">
               <div className="w-12 h-12 bg-slate-900 text-white rounded-2xl flex items-center justify-center">
@@ -146,7 +163,7 @@ export default function Settings() {
                   value={config.businessName}
                   onChange={(e) => setConfig({...config, businessName: e.target.value})}
                   className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-2xl font-bold text-slate-800 transition-all outline-none"
-                  placeholder="e.g. Acme Corp"
+                  placeholder="Business Name"
                 />
               </div>
 
@@ -157,11 +174,7 @@ export default function Settings() {
                     {config.photoURL ? (
                       <>
                         <img src={config.photoURL} className="w-full h-full object-cover" alt="Preview" />
-                        <button 
-                          type="button" 
-                          onClick={() => setConfig({...config, photoURL: ""})}
-                          className="absolute inset-0 bg-red-500/80 text-white opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
-                        >
+                        <button type="button" onClick={() => setConfig({...config, photoURL: ""})} className="absolute inset-0 bg-red-500/80 text-white opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                           <X size={20} />
                         </button>
                       </>
@@ -178,7 +191,6 @@ export default function Settings() {
             </div>
           </section>
 
-          {/* GPS Guardrail */}
           <section className="bg-white p-8 md:p-10 rounded-[3.5rem] border border-slate-100 shadow-xl shadow-slate-200/30">
             <div className="flex items-center justify-between mb-10">
               <div className="flex items-center gap-4">
@@ -189,26 +201,27 @@ export default function Settings() {
               </div>
               <button 
                 type="button"
+                disabled={isLocating}
                 onClick={setCurrentLocation}
-                className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-2xl hover:bg-emerald-600 transition-all shadow-lg font-black text-[10px] uppercase tracking-widest"
+                className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-2xl hover:bg-emerald-600 transition-all shadow-lg font-black text-[10px] uppercase tracking-widest disabled:opacity-50"
               >
-                <Target size={18} /> Get Current GPS
+                {isLocating ? <Loader2 className="animate-spin" size={18} /> : <Target size={18} />} 
+                {isLocating ? "Syncing..." : "Lock Current GPS"}
               </button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               <div className="space-y-3">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Saved Coordinates</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Lock</label>
                 <div className={`p-5 rounded-2xl flex items-center gap-3 border-2 ${config.location.lat === 0 ? 'bg-rose-50 border-rose-100 text-rose-600' : 'bg-slate-50 border-transparent text-slate-700'}`}>
                   <Navigation size={16} />
                   <span className="font-mono font-bold">
                     {config.location.lat.toFixed(6)}, {config.location.lng.toFixed(6)}
                   </span>
                 </div>
-                {config.location.lat === 0 && <p className="text-[9px] text-rose-500 font-bold uppercase italic">* Location not set! Scanning will fail.</p>}
               </div>
               <div className="space-y-3">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Allowed Radius (Meters)</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Radius (Meters)</label>
                 <input 
                   type="number" 
                   value={config.geofenceRadius}
@@ -222,19 +235,18 @@ export default function Settings() {
           <AdminQR />
         </div>
 
-        {/* Sidebar Save */}
         <div className="lg:col-span-1">
           <div className="bg-slate-900 p-8 rounded-[3rem] sticky top-8 text-white shadow-2xl">
-            <h4 className="font-black uppercase text-[10px] tracking-widest text-blue-400 mb-4">Finalize</h4>
+            <h4 className="font-black uppercase text-[10px] tracking-widest text-blue-400 mb-4">Deploy Rules</h4>
             <p className="text-sm opacity-70 mb-8 leading-relaxed">
-              Updating these rules affects all employee scans immediately. Ensure you are physically at the office when clicking "Get Current GPS".
+              Ensure you are physically at your office/site center when clicking "Lock Current GPS". 
             </p>
             <button 
-              disabled={isSaving}
+              disabled={isSaving || isLocating}
               type="submit"
               className="w-full py-6 bg-blue-600 rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-blue-500 transition-all flex items-center justify-center gap-3 shadow-xl disabled:opacity-50"
             >
-              {isSaving ? "Syncing..." : "Save Settings"}
+              {isSaving ? "Syncing..." : "Apply Global Rules"}
               <Save size={20} />
             </button>
           </div>
