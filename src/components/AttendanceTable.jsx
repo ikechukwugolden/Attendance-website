@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { db } from "../lib/firebase";
 import { collection, query, orderBy, limit, onSnapshot, where } from "firebase/firestore";
 import { useAuth } from "../context/AuthContext";
-import { Clock, LogOut, Smartphone, MousePointer2 } from "lucide-react";
+import { Clock, LogOut, Smartphone } from "lucide-react";
 
 export default function AttendanceTable() {
   const { user } = useAuth();
@@ -70,18 +70,21 @@ export default function AttendanceTable() {
                   <td className="py-4 px-4 bg-white group-hover:bg-slate-50 rounded-l-2xl border-y border-l border-transparent group-hover:border-slate-100 transition-colors">
                     <div className="flex items-center gap-3">
                       
-                      {/* 🟢 GOOGLE PHOTO CONTAINER */}
                       <div className="relative">
                         <div className={`w-10 h-10 rounded-xl overflow-hidden shadow-sm border ${isOut ? "border-slate-200" : "border-blue-100"}`}>
                           {log.userPhoto ? (
-                            <img src={log.userPhoto} alt={log.userName} className="w-full h-full object-cover" />
+                            <img 
+                              src={log.userPhoto} 
+                              alt={log.userName} 
+                              referrerPolicy="no-referrer" // FIXED: ORB Security Bypass
+                              className="w-full h-full object-cover" 
+                            />
                           ) : (
                             <div className="w-full h-full bg-slate-100 flex items-center justify-center text-slate-400 font-black text-xs">
                               {log.userName?.charAt(0)}
                             </div>
                           )}
                         </div>
-                        {/* Green pulse for active scans */}
                         {!isOut && (
                           <span className="absolute -top-1 -right-1 flex h-3 w-3">
                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>

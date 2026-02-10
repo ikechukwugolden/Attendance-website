@@ -1,15 +1,14 @@
 import { useState, useEffect } from "react";
 import { db } from "../lib/firebase";
-// Add 'orderBy' to this list
 import { collection, onSnapshot, query, where, doc, updateDoc, orderBy } from "firebase/firestore";
 import { useAuth } from "../context/AuthContext";
-import { UserPlus, Search, Building2, Loader2, MoreVertical, Mail, Edit3, Trash2, FileText, CheckCircle2, LogOut } from "lucide-react";
+import { UserPlus, Search, Building2, Loader2, MoreVertical, Edit3, Trash2, FileText, CheckCircle2, LogOut } from "lucide-react";
 import toast from "react-hot-toast";
 
 export default function Employees() {
   const { user } = useAuth();
   const [employees, setEmployees] = useState([]);
-  const [presenceMap, setPresenceMap] = useState({}); // Stores { userId: latestType }
+  const [presenceMap, setPresenceMap] = useState({}); 
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(true);
   const [activeMenu, setActiveMenu] = useState(null);
@@ -17,14 +16,12 @@ export default function Employees() {
   useEffect(() => {
     if (!user?.uid) return;
 
-    // 1. Listen for all employees linked to this business
     const qStaff = query(collection(db, "users"), where("businessId", "==", user.uid));
     const unsubStaff = onSnapshot(qStaff, (snapshot) => {
       setEmployees(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setLoading(false);
     });
 
-    // 2. Listen for today's logs to determine current "On-Site" status
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
     
@@ -32,14 +29,14 @@ export default function Employees() {
       collection(db, "attendance_logs"), 
       where("businessId", "==", user.uid),
       where("timestamp", ">=", startOfToday),
-      orderBy("timestamp", "asc") // Ascending so the last iteration is the latest status
+      orderBy("timestamp", "asc") 
     );
 
     const unsubLogs = onSnapshot(qLogs, (snapshot) => {
       const map = {};
       snapshot.docs.forEach(doc => {
         const data = doc.data();
-        map[data.userId] = data.type; // Will be "QR_Scan" or "Check_Out"
+        map[data.userId] = data.type; 
       });
       setPresenceMap(map);
     });
@@ -69,7 +66,6 @@ export default function Employees() {
     emp.email?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // Count people who are currently "In" (latest type is QR_Scan)
   const peopleInCount = Object.values(presenceMap).filter(type => type === "QR_Scan").length;
 
   if (loading) return <div className="h-96 flex items-center justify-center"><Loader2 className="animate-spin text-blue-600" /></div>;
@@ -104,7 +100,7 @@ export default function Employees() {
           <input 
             type="text" 
             placeholder="Search team..." 
-            className="w-full pl-16 pr-8 py-6 bg-slate-50 border-none rounded-[2.5rem] font-bold text-slate-600 outline-none transition-all"
+            className="w-full pl-16 pr-8 py-6 bg-slate-50 border-none rounded-[2.5rem] font-bold text-slate-600 outline-none transition-all focus:ring-2 focus:ring-blue-100"
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
@@ -130,7 +126,13 @@ export default function Employees() {
                       <div className="flex items-center gap-4">
                         <div className="relative">
                           <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white font-black overflow-hidden shadow-md ${isCurrentlyIn ? 'bg-slate-900' : 'bg-slate-200'}`}>
-                            {emp.photoURL ? <img src={emp.photoURL} className="w-full h-full object-cover" /> : emp.displayName?.charAt(0)}
+                            {emp.photoURL ? (
+                                <img 
+                                    src={emp.photoURL} 
+                                    referrerPolicy="no-referrer" // FIXED: Security Bypass
+                                    className="w-full h-full object-cover" 
+                                />
+                            ) : emp.displayName?.charAt(0)}
                           </div>
                           {isCurrentlyIn && (
                             <span className="absolute -top-1 -right-1 flex h-4 w-4">
@@ -153,7 +155,7 @@ export default function Employees() {
                         {emp.department || "General"}
                       </div>
                     </td>
-                    <td className="py-5 pr-8 bg-white group-hover:bg-slate-50 rounded-r-[2.5rem] border-y border-r border-slate-50 text-right">
+                    <td className="py-5 pr-8 bg-white group-hover:bg-slate-50 rounded-r-[2.5rem] border-y border-r border-slate-50 text-right relative">
                       <div className="flex justify-end items-center gap-4">
                         <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full border text-[9px] font-black uppercase tracking-widest ${
                           isCurrentlyIn 
@@ -168,15 +170,15 @@ export default function Employees() {
                         
                         <button 
                           onClick={() => setActiveMenu(activeMenu === emp.id ? null : emp.id)}
-                          className="p-3 bg-slate-50 group-hover:bg-white rounded-2xl hover:bg-slate-900 hover:text-white transition-all shadow-sm"
+                          className={`p-3 rounded-2xl transition-all shadow-sm ${activeMenu === emp.id ? 'bg-slate-900 text-white' : 'bg-slate-50 group-hover:bg-white hover:bg-slate-900 hover:text-white'}`}
                         >
                           <MoreVertical size={18} />
                         </button>
                       </div>
 
-                      {/* Dropdown Menu */}
+                      {/* Dropdown Menu - Fixed positioning */}
                       {activeMenu === emp.id && (
-                        <div className="absolute right-8 top-16 w-44 bg-white shadow-2xl rounded-2xl z-50 py-2 border border-slate-100 overflow-hidden text-left">
+                        <div className="absolute right-8 top-[70%] w-44 bg-white shadow-2xl rounded-2xl z-50 py-2 border border-slate-100 overflow-hidden text-left animate-in fade-in zoom-in-95 duration-200">
                           <button onClick={() => { updateDepartment(emp.id); setActiveMenu(null); }} className="w-full px-5 py-3 text-xs font-black flex items-center gap-2 hover:bg-slate-50 transition-colors">
                             <Edit3 size={14} /> Update Dept
                           </button>
