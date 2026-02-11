@@ -8,13 +8,18 @@ import {
   Tooltip,
   ResponsiveContainer
 } from 'recharts';
+import { BarChart3 } from 'lucide-react'; // Added proper icon import
 
 export default function AttendanceChart({ logs = [], data = [] }) {
   const [chartData, setChartData] = useState([]);
   const dataSource = logs.length > 0 ? logs : data;
 
   useEffect(() => {
-    if (!dataSource.length) return;
+    // If no data, reset the chart state and exit
+    if (!dataSource.length) {
+      setChartData([]);
+      return;
+    }
 
     const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const last7Days = [];
@@ -25,7 +30,7 @@ export default function AttendanceChart({ logs = [], data = [] }) {
       d.setDate(d.getDate() - i);
       last7Days.push({
         name: days[d.getDay()],
-        dateKey: d.toISOString().split('T')[0], // YYYY-MM-DD for reliable matching
+        dateKey: d.toISOString().split('T')[0],
         Early: 0,
         OnTime: 0,
         Late: 0
@@ -41,6 +46,7 @@ export default function AttendanceChart({ logs = [], data = [] }) {
       const daySlot = last7Days.find(d => d.dateKey === logDateKey);
       if (daySlot) {
         const status = log.status?.toLowerCase().trim();
+        // Handle various status string formats
         if (status === 'early' || status === 'early bird') daySlot.Early++;
         else if (status === 'on-time' || status === 'ontime') daySlot.OnTime++;
         else if (status === 'late') daySlot.Late++;
@@ -50,7 +56,7 @@ export default function AttendanceChart({ logs = [], data = [] }) {
     setChartData(last7Days);
   }, [dataSource]);
 
-  // Calculations for the Summary Stats
+  // Calculations for Summary Stats
   const totals = chartData.reduce(
     (acc, d) => {
       acc.Early += d.Early;
@@ -129,7 +135,6 @@ export default function AttendanceChart({ logs = [], data = [] }) {
                 cursor={{ fill: '#f8fafc', radius: 20 }} 
               />
 
-              {/* Stacked Bars with different radius logic for better visuals */}
               <Bar
                 dataKey="Early"
                 name="Early"
@@ -152,14 +157,15 @@ export default function AttendanceChart({ logs = [], data = [] }) {
                 stackId="a"
                 fill="#ef4444"
                 barSize={36}
-                radius={[12, 12, 12, 12]} // Only top of stack is rounded
+                radius={[12, 12, 12, 12]} 
               />
             </BarChart>
           </ResponsiveContainer>
         ) : (
           <div className="h-full flex flex-col items-center justify-center border-2 border-dashed rounded-[3rem] border-slate-100 text-slate-300">
             <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-4">
-              <svg className="w-8 h-8 opacity-20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+              {/* FIXED: Replaced corrupted <svg> path with Lucide component */}
+              <BarChart3 size={32} className="opacity-20" />
             </div>
             <p className="text-[10px] font-black uppercase tracking-widest">No Activity Recorded This Week</p>
           </div>

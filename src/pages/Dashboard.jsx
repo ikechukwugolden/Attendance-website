@@ -25,23 +25,18 @@ export default function Dashboard() {
     checkedOutCount: 0
   });
 
-  // FIXED: Stable scan URL construction
-  const scanUrl = user?.uid
-    ? `${window.location.origin}/scan?bid=${user.uid}`
-    : "";
+  const scanUrl = user?.uid ? `${window.location.origin}/scan?bid=${user.uid}` : "";
 
-  // 1. Fetch Business Profile (Logo/Name)
+  // 1. Business Profile
   useEffect(() => {
     if (!user?.uid) return;
     const unsub = onSnapshot(doc(db, "users", user.uid), (docSnap) => {
-      if (docSnap.exists()) {
-        setBusinessProfile(docSnap.data());
-      }
+      if (docSnap.exists()) setBusinessProfile(docSnap.data());
     });
     return () => unsub();
   }, [user]);
 
-  // 2. Fetch Hidden/Dismissed Intelligence Alerts
+  // 2. Dismissed Alerts
   useEffect(() => {
     if (!user?.uid) return;
     const q = query(collection(db, "dismissed_alerts"), where("businessId", "==", user.uid));
@@ -51,12 +46,18 @@ export default function Dashboard() {
     return () => unsubscribe();
   }, [user]);
 
-  // 3. Main Logs Listener & Stats Calculator
+  // 3. UPDATED: Main Logs Listener (Filtering for Today Only)
   useEffect(() => {
     if (!user?.uid) return;
+
+    // 🔥 Calculate the start of today
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
     const q = query(
       collection(db, "attendance_logs"),
       where("businessId", "==", user.uid),
+      where("timestamp", ">=", startOfToday), // 🔥 Only fetch today's logs
       orderBy("timestamp", "desc")
     );
 
@@ -65,7 +66,6 @@ export default function Dashboard() {
 
       if (fetchedLogs.length > 0) {
         const newestLog = fetchedLogs[0];
-
         if (lastLogId.current && newestLog.id !== lastLogId.current) {
           const isCheckOut = newestLog.type === "Check_Out" || newestLog.status === "Checked-Out";
           const icon = isCheckOut ? "🚪" : newestLog.status === "Late" ? "⏰" : "✅";
@@ -80,21 +80,17 @@ export default function Dashboard() {
 
       setLogs(fetchedLogs);
 
-      const todayStr = new Date().toLocaleDateString();
-      const todayLogs = fetchedLogs.filter(l =>
-        l.timestamp?.toDate().toLocaleDateString() === todayStr
-      );
-
+      // Calculate Stats strictly from today's fetched logs
       const userLatestStatus = {};
-      todayLogs.forEach(log => {
+      fetchedLogs.forEach(log => {
         if (!userLatestStatus[log.userId]) {
           userLatestStatus[log.userId] = log.type;
         }
       });
 
       const currentlyPresent = Object.values(userLatestStatus).filter(type => type === "QR_Scan").length;
-      const totalCheckedOutToday = todayLogs.filter(l => l.type === "Check_Out").length;
-      const totalLateToday = todayLogs.filter(l => l.status === "Late" && l.type === "QR_Scan").length;
+      const totalCheckedOutToday = fetchedLogs.filter(l => l.type === "Check_Out").length;
+      const totalLateToday = fetchedLogs.filter(l => l.status === "Late" && l.type === "QR_Scan").length;
 
       setStats({
         totalCount: fetchedLogs.length,
@@ -102,6 +98,9 @@ export default function Dashboard() {
         lateCount: totalLateToday,
         checkedOutCount: totalCheckedOutToday
       });
+    }, (error) => {
+      console.error("Firebase Query Error:", error);
+      // NOTE: If you see an error here, check your browser console for the Index creation link.
     });
 
     return () => unsubscribe();
@@ -122,15 +121,9 @@ export default function Dashboard() {
 
   const handleDismissAlert = async (userName, type) => {
     if (!user?.uid) return;
-
     const cleanUserName = userName.replace(/[^a-zA-Z0-9]/g, '_');
     const alertKey = `${user.uid}_${cleanUserName}_${type}`;
-
-    // OPTIMISTIC UPDATE: Hide it from state immediately
-    setAlerts(prev => prev.filter(a =>
-      !(`${user.uid}_${a.userName.replace(/[^a-zA-Z0-9]/g, '_')}_${a.type}` === alertKey)
-    ));
-
+    setAlerts(prev => prev.filter(a => !(`${user.uid}_${a.userName.replace(/[^a-zA-Z0-9]/g, '_')}_${a.type}` === alertKey)));
     try {
       await setDoc(doc(db, "dismissed_alerts", alertKey), {
         businessId: user.uid,
@@ -138,10 +131,7 @@ export default function Dashboard() {
         userName: userName,
         type: type
       });
-    } catch (error) {
-      // Rollback if sync fails (optional, but good practice)
-      toast.error("Sync failed");
-    }
+    } catch (error) { toast.error("Sync failed"); }
   };
 
   const handleResetAlerts = async () => {
@@ -153,9 +143,7 @@ export default function Dashboard() {
       snapshot.docs.forEach((doc) => { batch.delete(doc.ref); });
       await batch.commit();
       toast.success("Intelligence reset");
-    } catch (error) {
-      toast.error("Reset failed");
-    }
+    } catch (error) { toast.error("Reset failed"); }
   };
 
   const downloadQR = () => {
@@ -170,55 +158,27 @@ export default function Dashboard() {
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-10">
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-
         {/* QR Terminal Card */}
         <div className="lg:col-span-4 bg-white p-8 rounded-[3.5rem] border border-slate-100 shadow-2xl flex flex-col items-center text-center relative overflow-hidden group">
           <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
             <Sparkles size={60} className="text-blue-600" />
           </div>
           <div className="flex justify-between w-full mb-6 px-2">
-            <button onClick={() => { navigator.clipboard.writeText(scanUrl); toast.success("Link Copied!"); }} className="p-3 bg-slate-50 text-slate-400 hover:text-blue-600 rounded-2xl transition-all">
-              <Copy size={18} />
-            </button>
-            <button onClick={downloadQR} className="p-3 bg-slate-50 text-slate-400 hover:text-blue-600 rounded-2xl transition-all">
-              <Download size={18} />
-            </button>
+            <button onClick={() => { navigator.clipboard.writeText(scanUrl); toast.success("Link Copied!"); }} className="p-3 bg-slate-50 text-slate-400 hover:text-blue-600 rounded-2xl transition-all"><Copy size={18} /></button>
+            <button onClick={downloadQR} className="p-3 bg-slate-50 text-slate-400 hover:text-blue-600 rounded-2xl transition-all"><Download size={18} /></button>
           </div>
-
           <div className="w-20 h-20 rounded-[2rem] mb-4 shadow-2xl ring-8 ring-slate-50 overflow-hidden flex items-center justify-center bg-slate-100">
             {businessProfile?.photoURL ? (
-              <img
-                src={businessProfile.photoURL}
-                referrerPolicy="no-referrer" // FIXED: Prevents ORB error
-                className="w-full h-full object-cover"
-                alt="Logo"
-              />
+              <img src={businessProfile.photoURL} referrerPolicy="no-referrer" className="w-full h-full object-cover" alt="Logo" />
             ) : (
-              <div className="text-slate-400 font-black text-2xl uppercase">
-                {businessProfile?.businessName?.charAt(0) || "A"}
-              </div>
+              <div className="text-slate-400 font-black text-2xl uppercase">{businessProfile?.businessName?.charAt(0) || "A"}</div>
             )}
           </div>
-
-          <h2 className="text-2xl font-black text-slate-900 tracking-tighter italic">
-            {businessProfile?.businessName || "Terminal Active"}
-          </h2>
-
+          <h2 className="text-2xl font-black text-slate-900 tracking-tighter italic">{businessProfile?.businessName || "Terminal Active"}</h2>
           <p className="text-[9px] text-blue-500 font-black uppercase tracking-[0.3em] mb-8">BID: {user?.uid?.slice(0, 8)}</p>
-
           <div className="p-8 bg-slate-900 rounded-[3rem] shadow-2xl mb-8 transform group-hover:scale-105 transition-transform duration-500">
-            {scanUrl && (
-              <QRCodeCanvas
-                id="terminal-qr"
-                value={scanUrl}
-                size={160}
-                level="H" // FIXED: High error correction for better mobile scan
-                fgColor="#ffffff"
-                bgColor="transparent"
-              />
-            )}
+            {scanUrl && <QRCodeCanvas id="terminal-qr" value={scanUrl} size={160} level="H" fgColor="#ffffff" bgColor="transparent" />}
           </div>
-
           <div className="flex items-center gap-3 px-6 py-3 bg-emerald-50 rounded-full border border-emerald-100">
             <div className="h-2 w-2 bg-emerald-500 rounded-full animate-pulse" />
             <p className="text-[10px] text-emerald-700 font-black uppercase tracking-widest">Live Secure Terminal</p>
@@ -232,45 +192,23 @@ export default function Dashboard() {
               <h1 className="text-5xl font-black text-slate-900 tracking-tighter italic">Overview</h1>
               <p className="text-slate-400 font-bold text-sm ml-1">Real-time personnel monitoring</p>
             </div>
-            <button onClick={() => window.print()} className="p-4 bg-slate-900 text-white rounded-2xl hover:bg-blue-600 transition-all shadow-xl">
-              <Printer size={20} />
-            </button>
+            <button onClick={() => window.print()} className="p-4 bg-slate-900 text-white rounded-2xl hover:bg-blue-600 transition-all shadow-xl"><Printer size={20} /></button>
           </div>
-
           <StatsGrid stats={stats} />
-
           <div className="bg-slate-900 p-8 rounded-[3rem] shadow-2xl relative overflow-hidden">
             <div className="flex justify-between items-center mb-6">
-              <h3 className="text-blue-400 font-black flex items-center gap-3 text-xs uppercase tracking-[0.3em]">
-                <ShieldAlert size={18} />
-                Intelligence Alerts
-              </h3>
-
+              <h3 className="text-blue-400 font-black flex items-center gap-3 text-xs uppercase tracking-[0.3em]"><ShieldAlert size={18} /> Intelligence Alerts</h3>
               {cloudDismissed.length > 0 && (
-                <button
-                  onClick={handleResetAlerts}
-                  className="flex items-center gap-2 text-[10px] font-black text-blue-400/40 hover:text-blue-400 uppercase tracking-widest transition-all"
-                >
-                  <RotateCcw size={12} />
-                  Reset Hidden ({cloudDismissed.length})
-                </button>
+                <button onClick={handleResetAlerts} className="flex items-center gap-2 text-[10px] font-black text-blue-400/40 hover:text-blue-400 uppercase tracking-widest transition-all"><RotateCcw size={12} /> Reset Hidden ({cloudDismissed.length})</button>
               )}
             </div>
-
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {alerts.length > 0 ? (
                 alerts.map((alert, i) => (
                   <div key={i} className="group relative bg-white/5 border border-white/10 p-5 rounded-3xl backdrop-blur-sm hover:bg-white/10 transition-all border-l-4 border-l-blue-500">
-                    <button
-                      onClick={() => handleDismissAlert(alert.userName, alert.type)}
-                      className="absolute top-4 right-4 p-1.5 rounded-xl bg-white/10 text-white/50 hover:bg-red-500 hover:text-white opacity-0 group-hover:opacity-100 transition-all"
-                    >
-                      <X size={14} />
-                    </button>
+                    <button onClick={() => handleDismissAlert(alert.userName, alert.type)} className="absolute top-4 right-4 p-1.5 rounded-xl bg-white/10 text-white/50 hover:bg-red-500 hover:text-white opacity-0 group-hover:opacity-100 transition-all"><X size={14} /></button>
                     <p className="text-white font-black text-sm mb-1 italic">{alert.userName}</p>
-                    <p className="text-blue-200/50 text-[10px] font-bold uppercase tracking-widest leading-tight pr-8">
-                      {alert.issue}
-                    </p>
+                    <p className="text-blue-200/50 text-[10px] font-bold uppercase tracking-widest leading-tight pr-8">{alert.issue}</p>
                   </div>
                 ))
               ) : (
@@ -284,6 +222,7 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Analytics & Table */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
         <div className="xl:col-span-8 bg-white p-4 rounded-[3.5rem] border border-slate-100 shadow-2xl min-h-[450px]">
           <AttendanceChart logs={logs} />
@@ -300,7 +239,6 @@ export default function Dashboard() {
             </div>
           </div>
           <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
-            {/* Pass referrerPolicy if AttendanceTable supports it, or ensure it's inside the component */}
             <AttendanceTable logs={logs} />
           </div>
         </div>

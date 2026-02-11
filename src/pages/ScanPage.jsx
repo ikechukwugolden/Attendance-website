@@ -25,7 +25,6 @@ export default function ScanPage() {
   
   const businessId = searchParams.get("bid");
 
-  // 1. Fetch Business Identity (Handshake)
   useEffect(() => {
     async function fetchBusiness() {
       if (!businessId) {
@@ -33,13 +32,9 @@ export default function ScanPage() {
         toast.error("Handshake Failed: No Business ID found.");
         return;
       }
-
       try {
-        // Fetch the admin's user profile for the name/logo
         const uSnap = await getDoc(doc(db, "users", businessId));
-        // Fetch the business settings for geofence/grace period
         const sSnap = await getDoc(doc(db, "business_settings", businessId));
-        
         if (uSnap.exists()) {
           setBusinessData({ ...uSnap.data(), settings: sSnap.exists() ? sSnap.data() : {} });
         } else {
@@ -54,10 +49,8 @@ export default function ScanPage() {
     fetchBusiness();
   }, [businessId]);
 
-  // 2. Real-time Status & Coworker Logic
   useEffect(() => {
     if (!user || !businessId) return;
-
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -70,7 +63,6 @@ export default function ScanPage() {
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const allLogs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      
       const myLogs = allLogs.filter(l => l.userId === user.uid);
       const myScanLog = myLogs.find(l => l.type === "QR_Scan");
       const myLastLog = myLogs[0];
@@ -78,7 +70,6 @@ export default function ScanPage() {
       setHasCheckedIn(!!myScanLog);
       setHasCheckedOut(myLastLog?.type === "Check_Out");
       
-      // If user has scanned in today and hasn't checked out yet
       if (myScanLog && myLastLog?.type !== "Check_Out") {
         setIsSuccess(true);
         setMyStatus(myScanLog.status);
@@ -86,7 +77,6 @@ export default function ScanPage() {
         setIsSuccess(false);
       }
 
-      // Map unique coworkers who are currently "In"
       const latestPerUser = {};
       allLogs.forEach(log => {
         if (!latestPerUser[log.userId]) latestPerUser[log.userId] = log;
@@ -107,26 +97,14 @@ export default function ScanPage() {
 
     setIsProcessing(true);
     const isOut = hasCheckedIn && !hasCheckedOut;
+    const rules = businessData?.settings || {};
     const toastId = toast.loading(isOut ? "Ending shift..." : "Verifying...");
 
-    navigator.geolocation.getCurrentPosition(async (pos) => {
-      const { latitude, longitude } = pos.coords;
-      const rules = businessData?.settings || {};
-
-      // GEOFENCE CHECK
-      if (rules.location?.lat) {
-        const dist = calculateDistance(latitude, longitude, rules.location.lat, rules.location.lng);
-        if (dist > (Number(rules.geofenceRadius) || 200)) {
-          toast.error(`Out of Bounds: ${Math.round(dist)}m`, { id: toastId });
-          setIsProcessing(false);
-          return;
-        }
-      }
-
+    // NEW LOGIC: Define the save function separately so we can call it with or without GPS
+    const saveLog = async (lat = 0, lng = 0) => {
       try {
         let status = "Present";
         if (!isOut) {
-          // LATE DETECTION LOGIC
           const shiftStart = rules.shiftStart || "09:00";
           const [h, m] = shiftStart.split(":").map(Number);
           const deadline = new Date(); 
@@ -144,9 +122,13 @@ export default function ScanPage() {
           userPhoto: user.photoURL || "",
           status,
           timestamp: serverTimestamp(),
-          location: { lat: latitude, lng: longitude },
+          location: { lat, lng },
           type: isOut ? "Check_Out" : "QR_Scan"
         });
+
+        setMyStatus(status);
+        if (!isOut) setIsSuccess(true);
+        else { setIsSuccess(false); setHasCheckedOut(true); }
 
         toast.success(isOut ? "Shift ended!" : `Verified: ${status}`, { id: toastId });
       } catch (e) {
@@ -154,10 +136,36 @@ export default function ScanPage() {
       } finally {
         setIsProcessing(false);
       }
-    }, () => { 
-      toast.error("GPS Required", { id: toastId }); 
-      setIsProcessing(false); 
-    }, { enableHighAccuracy: true });
+    };
+
+    // If GPS is BYPASSED (gpsRequired is false), save immediately
+    if (rules.gpsRequired === false) {
+      return saveLog();
+    }
+
+    // Otherwise, attempt to get location with a strict timeout
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude, longitude } = pos.coords;
+        if (rules.location?.lat) {
+          const dist = calculateDistance(latitude, longitude, rules.location.lat, rules.location.lng);
+          if (dist > (Number(rules.geofenceRadius) || 200)) {
+            toast.error(`Out of Bounds: ${Math.round(dist)}m`, { id: toastId });
+            setIsProcessing(false);
+            return;
+          }
+        }
+        saveLog(latitude, longitude);
+      },
+      (error) => {
+        let msg = "GPS Error";
+        if (error.code === 1) msg = "Location Access Denied";
+        if (error.code === 3) msg = "GPS Timeout: Try again";
+        toast.error(msg, { id: toastId });
+        setIsProcessing(false);
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
   };
 
   const calculateDistance = (lat1, lon1, lat2, lon2) => {
@@ -171,7 +179,7 @@ export default function ScanPage() {
 
   const formatTimeLabel = (timestamp) => {
     if (!timestamp) return "...";
-    const date = timestamp.toDate();
+    const date = timestamp.toDate ? timestamp.toDate() : new Date();
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
@@ -181,19 +189,13 @@ export default function ScanPage() {
     </div>
   );
 
-  // --- VIEW 1: SUCCESSFUL SCAN (Social Feed) ---
   if (isSuccess) {
     return (
       <div className="min-h-screen bg-slate-950 text-white p-6 flex flex-col items-center">
         <div className={`w-full max-w-md p-10 rounded-[3.5rem] text-center mb-8 border-b-8 shadow-2xl ${myStatus === 'Late' ? 'bg-rose-600 border-rose-900' : 'bg-emerald-600 border-emerald-900'}`}>
           <div className="w-24 h-24 rounded-3xl mx-auto mb-4 border-4 border-white/20 overflow-hidden shadow-xl bg-white/10">
             {user?.photoURL ? (
-              <img 
-                src={user.photoURL} 
-                referrerPolicy="no-referrer" 
-                alt="" 
-                className="w-full h-full object-cover" 
-              />
+              <img src={user.photoURL} referrerPolicy="no-referrer" alt="" className="w-full h-full object-cover" />
             ) : (
               <Users className="m-auto h-full w-1/2 text-white/50" />
             )}
@@ -206,7 +208,6 @@ export default function ScanPage() {
           </button>
         </div>
 
-        {/* COWORKER LIST */}
         <div className="w-full max-w-md bg-slate-900/50 rounded-[3rem] p-8 border border-white/5 backdrop-blur-xl">
             <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-400 mb-6">On-Site Coworkers ({coworkers.length})</h3>
             <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
@@ -230,19 +231,13 @@ export default function ScanPage() {
     );
   }
 
-  // --- VIEW 2: INITIAL SCAN (The Branding & Confirm Button) ---
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-sm bg-white rounded-[4rem] p-10 shadow-2xl border-b-[12px] border-slate-200">
         <div className="text-center mb-10">
           <div className="w-24 h-24 bg-slate-100 rounded-[2.5rem] mx-auto mb-6 flex items-center justify-center overflow-hidden border-4 border-white shadow-xl">
             {businessData?.photoURL ? (
-              <img 
-                src={businessData.photoURL} 
-                referrerPolicy="no-referrer"
-                className="w-full h-full object-cover" 
-                alt=""
-              />
+              <img src={businessData.photoURL} referrerPolicy="no-referrer" className="w-full h-full object-cover" alt="" />
             ) : (
               <Building2 className="text-slate-300" size={40} />
             )}
