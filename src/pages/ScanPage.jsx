@@ -25,11 +25,11 @@ export default function ScanPage() {
   
   const businessId = searchParams.get("bid");
 
+  // 1. Fetch Business Info
   useEffect(() => {
     async function fetchBusiness() {
       if (!businessId) {
         setLoadingBusiness(false);
-        toast.error("Handshake Failed: No Business ID found.");
         return;
       }
       try {
@@ -37,8 +37,6 @@ export default function ScanPage() {
         const sSnap = await getDoc(doc(db, "business_settings", businessId));
         if (uSnap.exists()) {
           setBusinessData({ ...uSnap.data(), settings: sSnap.exists() ? sSnap.data() : {} });
-        } else {
-          toast.error("Business not found.");
         }
       } catch (err) {
         toast.error("Connection error.");
@@ -49,6 +47,7 @@ export default function ScanPage() {
     fetchBusiness();
   }, [businessId]);
 
+  // 2. Real-time Attendance & Coworker Logic
   useEffect(() => {
     if (!user || !businessId) return;
     const today = new Date();
@@ -63,20 +62,25 @@ export default function ScanPage() {
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const allLogs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      const myLogs = allLogs.filter(l => l.userId === user.uid);
-      const myScanLog = myLogs.find(l => l.type === "QR_Scan");
-      const myLastLog = myLogs[0];
-
-      setHasCheckedIn(!!myScanLog);
-      setHasCheckedOut(myLastLog?.type === "Check_Out");
       
-      if (myScanLog && myLastLog?.type !== "Check_Out") {
-        setIsSuccess(true);
-        setMyStatus(myScanLog.status);
-      } else {
-        setIsSuccess(false);
+      // FIX: Better logic to find MY status
+      const myLogs = allLogs.filter(l => l.userId === user.uid);
+      const latestLog = myLogs[0]; // Most recent due to orderBy desc
+
+      if (latestLog) {
+        if (latestLog.type === "QR_Scan") {
+          setHasCheckedIn(true);
+          setHasCheckedOut(false);
+          setIsSuccess(true);
+          setMyStatus(latestLog.status);
+        } else if (latestLog.type === "Check_Out") {
+          setHasCheckedIn(false);
+          setHasCheckedOut(true);
+          setIsSuccess(false);
+        }
       }
 
+      // Coworker logic: Only show people currently "In"
       const latestPerUser = {};
       allLogs.forEach(log => {
         if (!latestPerUser[log.userId]) latestPerUser[log.userId] = log;
@@ -96,22 +100,24 @@ export default function ScanPage() {
     if (!businessId) return toast.error("Invalid Handshake.");
 
     setIsProcessing(true);
-    const isOut = hasCheckedIn && !hasCheckedOut;
+    // FIX: Explicitly define if we are checking out
+    const isCheckingOut = hasCheckedIn && !hasCheckedOut;
+    
     const rules = businessData?.settings || {};
-    const toastId = toast.loading(isOut ? "Ending shift..." : "Verifying...");
+    const toastId = toast.loading(isCheckingOut ? "Ending shift..." : "Verifying...");
 
-    // NEW LOGIC: Define the save function separately so we can call it with or without GPS
     const saveLog = async (lat = 0, lng = 0) => {
       try {
-        let status = "Present";
-        if (!isOut) {
+        let finalStatus = "Present";
+        
+        if (isCheckingOut) {
+          finalStatus = "Checked-Out";
+        } else {
           const shiftStart = rules.shiftStart || "09:00";
           const [h, m] = shiftStart.split(":").map(Number);
           const deadline = new Date(); 
           deadline.setHours(h, m + (Number(rules.gracePeriod) || 0), 0, 0);
-          status = new Date().getTime() > deadline.getTime() ? "Late" : "On-Time";
-        } else {
-          status = "Checked-Out";
+          finalStatus = new Date().getTime() > deadline.getTime() ? "Late" : "On-Time";
         }
 
         await addDoc(collection(db, "attendance_logs"), {
@@ -120,17 +126,13 @@ export default function ScanPage() {
           userId: user.uid,
           userName: user.displayName || user.email.split('@')[0],
           userPhoto: user.photoURL || "",
-          status,
+          status: finalStatus,
           timestamp: serverTimestamp(),
           location: { lat, lng },
-          type: isOut ? "Check_Out" : "QR_Scan"
+          type: isCheckingOut ? "Check_Out" : "QR_Scan"
         });
 
-        setMyStatus(status);
-        if (!isOut) setIsSuccess(true);
-        else { setIsSuccess(false); setHasCheckedOut(true); }
-
-        toast.success(isOut ? "Shift ended!" : `Verified: ${status}`, { id: toastId });
+        toast.success(isCheckingOut ? "Shift ended!" : `Verified: ${finalStatus}`, { id: toastId });
       } catch (e) {
         toast.error("Sync error", { id: toastId });
       } finally {
@@ -138,18 +140,19 @@ export default function ScanPage() {
       }
     };
 
-    // If GPS is BYPASSED (gpsRequired is false), save immediately
+    // GPS Logic
     if (rules.gpsRequired === false) {
       return saveLog();
     }
 
-    // Otherwise, attempt to get location with a strict timeout
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const { latitude, longitude } = pos.coords;
         if (rules.location?.lat) {
           const dist = calculateDistance(latitude, longitude, rules.location.lat, rules.location.lng);
-          if (dist > (Number(rules.geofenceRadius) || 200)) {
+          // 3rd floor buffer: use 250m if not specified
+          const radius = Number(rules.geofenceRadius) || 250;
+          if (dist > radius) {
             toast.error(`Out of Bounds: ${Math.round(dist)}m`, { id: toastId });
             setIsProcessing(false);
             return;
@@ -158,13 +161,10 @@ export default function ScanPage() {
         saveLog(latitude, longitude);
       },
       (error) => {
-        let msg = "GPS Error";
-        if (error.code === 1) msg = "Location Access Denied";
-        if (error.code === 3) msg = "GPS Timeout: Try again";
-        toast.error(msg, { id: toastId });
+        toast.error("GPS Error: Try turning on Location", { id: toastId });
         setIsProcessing(false);
       },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 15000 }
     );
   };
 
@@ -189,6 +189,7 @@ export default function ScanPage() {
     </div>
   );
 
+  // VIEW: SUCCESS / CHECKED-IN
   if (isSuccess) {
     return (
       <div className="min-h-screen bg-slate-950 text-white p-6 flex flex-col items-center">
@@ -203,7 +204,11 @@ export default function ScanPage() {
           <h1 className="text-4xl font-black italic uppercase">Verified: {myStatus}</h1>
           <p className="font-bold text-white/80 mt-1 uppercase tracking-widest text-[10px]">{user?.displayName || user?.email}</p>
           
-          <button onClick={handleAttendance} disabled={isProcessing} className="mt-8 w-full py-5 bg-black/20 hover:bg-black/40 rounded-[2rem] flex items-center justify-center gap-3 font-black uppercase text-[11px] border border-white/10">
+          <button 
+            onClick={handleAttendance} 
+            disabled={isProcessing} 
+            className="mt-8 w-full py-5 bg-black/20 hover:bg-black/40 rounded-[2rem] flex items-center justify-center gap-3 font-black uppercase text-[11px] border border-white/10"
+          >
             {isProcessing ? <Loader2 className="animate-spin" /> : <><LogOut size={18}/> End My Session</>}
           </button>
         </div>
@@ -213,12 +218,7 @@ export default function ScanPage() {
             <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
               {coworkers.length > 0 ? coworkers.map((w) => (
                 <div key={w.id} className="flex items-center gap-3 p-3 bg-white/5 rounded-2xl border border-white/5">
-                  <img 
-                    src={w.userPhoto || `https://ui-avatars.com/api/?name=${w.userName}`} 
-                    referrerPolicy="no-referrer"
-                    className="h-10 w-10 rounded-xl object-cover" 
-                    alt=""
-                  />
+                  <img src={w.userPhoto || `https://ui-avatars.com/api/?name=${w.userName}`} className="h-10 w-10 rounded-xl object-cover" alt="" />
                   <div>
                     <p className="text-sm font-bold">{w.userName}</p>
                     <p className="text-[9px] text-slate-500 font-black uppercase">{w.status} • {formatTimeLabel(w.timestamp)}</p>
@@ -231,6 +231,7 @@ export default function ScanPage() {
     );
   }
 
+  // VIEW: INITIAL SCAN / CHECK-OUT COMPLETE
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-sm bg-white rounded-[4rem] p-10 shadow-2xl border-b-[12px] border-slate-200">
@@ -243,13 +244,14 @@ export default function ScanPage() {
             )}
           </div>
           <h2 className="text-2xl font-black text-slate-900 uppercase italic">{businessData?.businessName || "Terminal Active"}</h2>
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">Ready for check-in</p>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">Attendance Terminal</p>
         </div>
 
         {hasCheckedOut ? (
           <div className="bg-emerald-50 rounded-[2.5rem] p-8 text-center border border-emerald-100">
             <CheckCircle size={48} className="text-emerald-500 mx-auto mb-3" />
             <p className="text-xs font-black text-emerald-900 uppercase italic">Shift complete. See you tomorrow!</p>
+            <button onClick={() => window.location.reload()} className="mt-4 text-[9px] font-bold text-slate-400 uppercase border-b border-slate-200">Reset View</button>
           </div>
         ) : (
           <button onClick={handleAttendance} disabled={isProcessing} className="w-full py-8 rounded-[2.5rem] font-black uppercase bg-slate-900 text-white hover:bg-blue-600 transition-all shadow-xl active:scale-95">
