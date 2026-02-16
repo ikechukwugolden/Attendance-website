@@ -6,7 +6,7 @@ import {
   query, where, orderBy, onSnapshot, setDoc
 } from "firebase/firestore";
 import { useAuth } from "../context/AuthContext";
-import { CheckCircle, Loader2, Users, LogOut, Building2, Clock, Calendar } from "lucide-react";
+import { CheckCircle, Loader2, Users, LogOut, Building2, Clock, Calendar, Activity } from "lucide-react";
 import toast from "react-hot-toast";
 
 export default function ScanPage() {
@@ -20,7 +20,7 @@ export default function ScanPage() {
   const [isSuccess, setIsSuccess] = useState(false);
   const [myStatus, setMyStatus] = useState("");
   const [coworkers, setCoworkers] = useState([]);
-  const [allTodayLogs, setAllTodayLogs] = useState([]); // <--- NEW STATE FOR FULL LOG
+  const [allTodayLogs, setAllTodayLogs] = useState([]);
   const [hasCheckedIn, setHasCheckedIn] = useState(false);
   const [hasCheckedOut, setHasCheckedOut] = useState(false);
 
@@ -68,7 +68,7 @@ export default function ScanPage() {
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const allLogs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      setAllTodayLogs(allLogs); // Store every single log for the dashboard view
+      setAllTodayLogs(allLogs);
 
       const myLogs = allLogs.filter(l => l.userId === user.uid);
       const lastLog = myLogs[0];
@@ -185,6 +185,12 @@ export default function ScanPage() {
       "Present": "bg-emerald-600 border-emerald-900"
     };
 
+    // Calculate current people on site for the avatar stack
+    const onSitePeople = [
+        ...allTodayLogs.filter(l => l.userId === user.uid && l.type === "QR_Scan"),
+        ...coworkers
+    ];
+
     return (
       <div className="min-h-screen bg-slate-950 text-white p-6 flex flex-col items-center gap-6">
         {/* Personal Status Card */}
@@ -208,39 +214,65 @@ export default function ScanPage() {
           </button>
         </div>
 
-        {/* FULL ACTIVITY LOG (Admin Dashboard Style) */}
+        {/* LIVE ACTIVITY LOG WITH AVATAR STACK */}
         <div className="w-full max-w-md bg-slate-900/50 rounded-[3rem] p-8 border border-white/5 backdrop-blur-xl">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-400">Daily Activity Log</h3>
-            <Calendar size={14} className="text-slate-500" />
+          <div className="flex flex-col gap-5 mb-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-400">On-Site Now</h3>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  </span>
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-tight">{onSitePeople.length} People Active</span>
+                </div>
+              </div>
+              <Calendar size={14} className="text-slate-500" />
+            </div>
+
+            {/* AVATAR GROUP STACK */}
+            <div className="flex -space-x-3 overflow-hidden p-1">
+                {onSitePeople.map((person, idx) => (
+                    <img 
+                        key={person.userId || idx}
+                        className="inline-block h-10 w-10 rounded-xl ring-4 ring-slate-950 object-cover bg-slate-800"
+                        src={person.userPhoto || `https://ui-avatars.com/api/?name=${person.userName}&background=random`}
+                        alt=""
+                    />
+                ))}
+            </div>
           </div>
           
           <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-            {allTodayLogs.length > 0 ? allTodayLogs.map((log) => (
-              <div key={log.id} className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/5">
-                <div className="flex items-center gap-3">
-                  <img
-                    src={log.userPhoto || `https://ui-avatars.com/api/?name=${log.userName}`}
-                    className="h-8 w-8 rounded-lg object-cover shadow-lg"
-                    alt=""
-                  />
-                  <div>
-                    <p className="text-[11px] font-bold leading-none mb-1">{log.userName}</p>
-                    <p className={`text-[9px] font-black uppercase ${log.type === 'Check_Out' ? 'text-slate-400' : 'text-emerald-400'}`}>
-                      {log.type === 'Check_Out' ? 'Left Site' : 'Arrived'}
-                    </p>
+            {allTodayLogs.length > 0 ? allTodayLogs.map((log) => {
+              const isOut = log.type === 'Check_Out';
+              return (
+                <div key={log.id} className={`flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/5 transition-opacity ${isOut ? 'opacity-40 grayscale-[0.5]' : ''}`}>
+                  <div className="flex items-center gap-3">
+                    <img
+                      src={log.userPhoto || `https://ui-avatars.com/api/?name=${log.userName}`}
+                      className="h-8 w-8 rounded-lg object-cover shadow-lg"
+                      alt=""
+                    />
+                    <div>
+                      <p className="text-[11px] font-bold leading-none mb-1">{log.userName}</p>
+                      <p className={`text-[9px] font-black uppercase ${isOut ? 'text-slate-500' : 'text-emerald-400'}`}>
+                        {isOut ? 'Left Site' : 'Arrived'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] font-mono text-white/70">{formatTimeLabel(log.timestamp)}</p>
+                    <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${
+                      log.status === 'Late' ? 'bg-rose-500/20 text-rose-400' : 'bg-emerald-500/20 text-emerald-400'
+                    }`}>
+                      {log.status}
+                    </span>
                   </div>
                 </div>
-                <div className="text-right">
-                  <p className="text-[10px] font-mono text-white/70">{formatTimeLabel(log.timestamp)}</p>
-                  <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${
-                    log.status === 'Late' ? 'bg-rose-500/20 text-rose-400' : 'bg-emerald-500/20 text-emerald-400'
-                  }`}>
-                    {log.status}
-                  </span>
-                </div>
-              </div>
-            )) : (
+              );
+            }) : (
               <div className="text-center py-10">
                 <p className="text-slate-600 font-bold text-xs italic uppercase tracking-widest">No activity recorded yet</p>
               </div>

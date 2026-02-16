@@ -1,54 +1,62 @@
 @import "tailwindcss";
 
-/* Custom animations for illustration */
+/* --- 1. Custom Scrollbar (Activity Logs) --- */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  border: 1px solid transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(59, 130, 246, 0.4); /* Subtle blue glow */
+}
+
+/* --- 2. Animations --- */
 @keyframes float {
-
-  0%,
-  100% {
-    transform: translateY(0px);
-  }
-
-  50% {
-    transform: translateY(-10px);
-  }
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
 }
 
 @keyframes pulse-glow {
-
-  0%,
-  100% {
-    opacity: 1;
-  }
-
-  50% {
-    opacity: 0.8;
-  }
-}
-
-/* Hover effects for buttons */
-.hover-lift {
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-
-.hover-lift:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
-}
-
-/* Gradient text animation */
-.animate-gradient {
-  background-size: 200% 200%;
-  animation: gradient 3s ease infinite;
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.8; }
 }
 
 @keyframes gradient {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
 
-  0%,
-  100% {
-    background-position: 0% 50%;
-  }
+/* --- 3. Interactive Utilities --- */
+.hover-lift {
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease;
+}
 
-  50% {
-    background-position: 100% 50%;
-  }
+.hover-lift:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2);
+}
+
+.animate-gradient {
+  background: linear-gradient(-45deg, #3b82f6, #10b981, #6366f1, #2563eb);
+  background-size: 400% 400%;
+  animation: gradient 8s ease infinite;
+}
+
+/* --- 4. Stealth Utilities --- */
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
