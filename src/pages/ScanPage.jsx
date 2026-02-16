@@ -6,7 +6,7 @@ import {
   query, where, orderBy, onSnapshot, setDoc
 } from "firebase/firestore";
 import { useAuth } from "../context/AuthContext";
-import { CheckCircle, Loader2, Users, LogOut, Building2, Clock } from "lucide-react";
+import { CheckCircle, Loader2, Users, LogOut, Building2, Clock, Calendar } from "lucide-react";
 import toast from "react-hot-toast";
 
 export default function ScanPage() {
@@ -20,12 +20,12 @@ export default function ScanPage() {
   const [isSuccess, setIsSuccess] = useState(false);
   const [myStatus, setMyStatus] = useState("");
   const [coworkers, setCoworkers] = useState([]);
+  const [allTodayLogs, setAllTodayLogs] = useState([]); // <--- NEW STATE FOR FULL LOG
   const [hasCheckedIn, setHasCheckedIn] = useState(false);
   const [hasCheckedOut, setHasCheckedOut] = useState(false);
 
   const businessId = searchParams.get("bid");
 
-  // --- NEW: REDIRECT TO LOGIN IF NOT AUTHENTICATED ---
   useEffect(() => {
     if (!user && !loadingBusiness) {
       toast.error("Please login to confirm presence");
@@ -68,6 +68,8 @@ export default function ScanPage() {
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const allLogs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      setAllTodayLogs(allLogs); // Store every single log for the dashboard view
+
       const myLogs = allLogs.filter(l => l.userId === user.uid);
       const lastLog = myLogs[0];
 
@@ -102,7 +104,6 @@ export default function ScanPage() {
   }, [user, businessId]);
 
   const handleAttendance = async () => {
-    // Improved error message to help you debug exactly what is missing
     if (!user) return toast.error("Session expired. Please login again.");
     if (!businessId) return toast.error("Invalid QR Code. Please scan again.");
 
@@ -115,22 +116,16 @@ export default function ScanPage() {
       
       if (!isCheckingOut && businessData?.settings) {
         const { shiftStart, gracePeriod = 0 } = businessData.settings;
-        
         if (shiftStart) {
           const now = new Date();
           const [sHour, sMin] = shiftStart.split(":").map(Number);
-          
           const shiftTime = new Date();
           shiftTime.setHours(sHour, sMin, 0, 0);
           const graceTime = new Date(shiftTime.getTime() + gracePeriod * 60000);
 
-          if (now > graceTime) {
-            statusText = "Late";
-          } else if (now < shiftTime) {
-            statusText = "Early";
-          } else {
-            statusText = "On-Time";
-          }
+          if (now > graceTime) statusText = "Late";
+          else if (now < shiftTime) statusText = "Early";
+          else statusText = "On-Time";
         }
       }
 
@@ -161,9 +156,7 @@ export default function ScanPage() {
         setHasCheckedOut(true);
         setHasCheckedIn(false);
       }
-
       toast.success(isCheckingOut ? "Session ended" : `Confirmed: ${statusText}`);
-
     } catch (error) {
       console.error("Error saving attendance:", error);
       toast.error("Failed to save. Try again.");
@@ -193,8 +186,9 @@ export default function ScanPage() {
     };
 
     return (
-      <div className="min-h-screen bg-slate-950 text-white p-6 flex flex-col items-center">
-        <div className={`w-full max-w-md p-10 rounded-[3.5rem] text-center mb-8 border-b-8 shadow-2xl transition-all duration-500 ${statusConfig[myStatus] || 'bg-slate-800 border-slate-900'}`}>
+      <div className="min-h-screen bg-slate-950 text-white p-6 flex flex-col items-center gap-6">
+        {/* Personal Status Card */}
+        <div className={`w-full max-w-md p-10 rounded-[3.5rem] text-center border-b-8 shadow-2xl transition-all duration-500 ${statusConfig[myStatus] || 'bg-slate-800 border-slate-900'}`}>
           <div className="w-24 h-24 rounded-3xl mx-auto mb-4 border-4 border-white/20 overflow-hidden shadow-xl bg-white/10">
             {user?.photoURL ? (
               <img src={user.photoURL} referrerPolicy="no-referrer" alt="" className="w-full h-full object-cover" />
@@ -202,44 +196,55 @@ export default function ScanPage() {
               <Users className="m-auto h-full w-1/2 text-white/50" />
             )}
           </div>
-          
           <div className="flex items-center justify-center gap-2 mb-1">
              <Clock size={16} className="opacity-50" />
              <span className="text-[10px] font-black uppercase tracking-widest opacity-80">Arrival Status</span>
           </div>
-          
-          <h1 className="text-4xl font-black italic uppercase tracking-tighter">
-            {myStatus}
-          </h1>
-          
-          <p className="font-bold text-white/80 mt-2 uppercase tracking-widest text-[10px]">
-            {user?.displayName || user?.email}
-          </p>
+          <h1 className="text-4xl font-black italic uppercase tracking-tighter">{myStatus}</h1>
+          <p className="font-bold text-white/80 mt-2 uppercase tracking-widest text-[10px]">{user?.displayName || user?.email}</p>
 
           <button onClick={handleAttendance} disabled={isProcessing} className="mt-8 w-full py-5 bg-black/20 hover:bg-black/40 rounded-[2rem] flex items-center justify-center gap-3 font-black uppercase text-[11px] border border-white/10 transition-all active:scale-95">
             {isProcessing ? <Loader2 className="animate-spin" /> : <><LogOut size={18} /> End My Session</>}
           </button>
         </div>
 
+        {/* FULL ACTIVITY LOG (Admin Dashboard Style) */}
         <div className="w-full max-w-md bg-slate-900/50 rounded-[3rem] p-8 border border-white/5 backdrop-blur-xl">
-          <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-400 mb-6">On-Site Coworkers ({coworkers.length})</h3>
-          <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-            {coworkers.length > 0 ? coworkers.map((w) => (
-              <div key={w.id} className="flex items-center gap-3 p-3 bg-white/5 rounded-2xl border border-white/5">
-                <img
-                  src={w.userPhoto || `https://ui-avatars.com/api/?name=${w.userName}`}
-                  referrerPolicy="no-referrer"
-                  className="h-10 w-10 rounded-xl object-cover"
-                  alt=""
-                />
-                <div>
-                  <p className="text-sm font-bold">{w.userName}</p>
-                  <p className={`text-[9px] font-black uppercase ${w.status === 'Late' ? 'text-rose-400' : 'text-emerald-400'}`}>
-                    {w.status} • {formatTimeLabel(w.timestamp)}
-                  </p>
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-400">Daily Activity Log</h3>
+            <Calendar size={14} className="text-slate-500" />
+          </div>
+          
+          <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+            {allTodayLogs.length > 0 ? allTodayLogs.map((log) => (
+              <div key={log.id} className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/5">
+                <div className="flex items-center gap-3">
+                  <img
+                    src={log.userPhoto || `https://ui-avatars.com/api/?name=${log.userName}`}
+                    className="h-8 w-8 rounded-lg object-cover shadow-lg"
+                    alt=""
+                  />
+                  <div>
+                    <p className="text-[11px] font-bold leading-none mb-1">{log.userName}</p>
+                    <p className={`text-[9px] font-black uppercase ${log.type === 'Check_Out' ? 'text-slate-400' : 'text-emerald-400'}`}>
+                      {log.type === 'Check_Out' ? 'Left Site' : 'Arrived'}
+                    </p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] font-mono text-white/70">{formatTimeLabel(log.timestamp)}</p>
+                  <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase ${
+                    log.status === 'Late' ? 'bg-rose-500/20 text-rose-400' : 'bg-emerald-500/20 text-emerald-400'
+                  }`}>
+                    {log.status}
+                  </span>
                 </div>
               </div>
-            )) : <p className="text-center py-4 text-slate-600 font-bold text-xs italic">Working solo right now...</p>}
+            )) : (
+              <div className="text-center py-10">
+                <p className="text-slate-600 font-bold text-xs italic uppercase tracking-widest">No activity recorded yet</p>
+              </div>
+            )}
           </div>
         </div>
       </div>
