@@ -25,6 +25,14 @@ export default function ScanPage() {
 
   const businessId = searchParams.get("bid");
 
+  // --- NEW: REDIRECT TO LOGIN IF NOT AUTHENTICATED ---
+  useEffect(() => {
+    if (!user && !loadingBusiness) {
+      toast.error("Please login to confirm presence");
+      navigate("/login"); 
+    }
+  }, [user, loadingBusiness, navigate]);
+
   useEffect(() => {
     async function fetchBusiness() {
       if (!businessId) {
@@ -94,14 +102,15 @@ export default function ScanPage() {
   }, [user, businessId]);
 
   const handleAttendance = async () => {
-    if (!user || !businessId) return toast.error("Missing user or business ID");
+    // Improved error message to help you debug exactly what is missing
+    if (!user) return toast.error("Session expired. Please login again.");
+    if (!businessId) return toast.error("Invalid QR Code. Please scan again.");
 
     setIsProcessing(true);
     try {
       const userRef = doc(db, "users", user.uid);
       const isCheckingOut = hasCheckedIn && !hasCheckedOut;
       
-      // --- START TIME LOGIC ---
       let statusText = "Present";
       
       if (!isCheckingOut && businessData?.settings) {
@@ -113,7 +122,6 @@ export default function ScanPage() {
           
           const shiftTime = new Date();
           shiftTime.setHours(sHour, sMin, 0, 0);
-
           const graceTime = new Date(shiftTime.getTime() + gracePeriod * 60000);
 
           if (now > graceTime) {
@@ -125,7 +133,6 @@ export default function ScanPage() {
           }
         }
       }
-      // --- END TIME LOGIC ---
 
       await setDoc(userRef, {
         displayName: user.displayName || user.email.split('@')[0],
@@ -178,7 +185,6 @@ export default function ScanPage() {
   );
 
   if (isSuccess) {
-    // Dynamic styling based on status
     const statusConfig = {
       "Late": "bg-rose-600 border-rose-900",
       "Early": "bg-blue-600 border-blue-900",
