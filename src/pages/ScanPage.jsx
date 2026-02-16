@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { db } from "../lib/firebase";
-import { 
-  collection, addDoc, serverTimestamp, doc, getDoc, 
-  query, where, orderBy, onSnapshot 
+import {
+  collection, addDoc, serverTimestamp, doc, getDoc,
+  query, where, orderBy, onSnapshot
 } from "firebase/firestore";
 import { useAuth } from "../context/AuthContext";
 import { CheckCircle, Loader2, Users, LogOut, Building2 } from "lucide-react";
@@ -13,23 +13,22 @@ export default function ScanPage() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  
+
   const [businessData, setBusinessData] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [loadingBusiness, setLoadingBusiness] = useState(true);
-  const [isSuccess, setIsSuccess] = useState(false); 
-  const [myStatus, setMyStatus] = useState(""); 
-  const [coworkers, setCoworkers] = useState([]); 
+  const [isSuccess, setIsSuccess] = useState(false);
+  const [myStatus, setMyStatus] = useState("");
+  const [coworkers, setCoworkers] = useState([]);
   const [hasCheckedIn, setHasCheckedIn] = useState(false);
   const [hasCheckedOut, setHasCheckedOut] = useState(false);
-  
+
   const businessId = searchParams.get("bid");
 
   useEffect(() => {
     async function fetchBusiness() {
       if (!businessId) {
         setLoadingBusiness(false);
-        toast.error("Handshake Failed: No Business ID found.");
         return;
       }
       try {
@@ -37,8 +36,6 @@ export default function ScanPage() {
         const sSnap = await getDoc(doc(db, "business_settings", businessId));
         if (uSnap.exists()) {
           setBusinessData({ ...uSnap.data(), settings: sSnap.exists() ? sSnap.data() : {} });
-        } else {
-          toast.error("Business not found.");
         }
       } catch (err) {
         toast.error("Connection error.");
@@ -64,25 +61,34 @@ export default function ScanPage() {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const allLogs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       const myLogs = allLogs.filter(l => l.userId === user.uid);
-      const myScanLog = myLogs.find(l => l.type === "QR_Scan");
-      const myLastLog = myLogs[0];
 
-      setHasCheckedIn(!!myScanLog);
-      setHasCheckedOut(myLastLog?.type === "Check_Out");
-      
-      if (myScanLog && myLastLog?.type !== "Check_Out") {
-        setIsSuccess(true);
-        setMyStatus(myScanLog.status);
-      } else {
-        setIsSuccess(false);
+      const lastLog = myLogs[0];
+
+      if (lastLog) {
+        const currentlyIn = lastLog.type === "QR_Scan";
+        const currentlyOut = lastLog.type === "Check_Out";
+
+        setHasCheckedIn(currentlyIn);
+        setHasCheckedOut(currentlyOut);
+
+        if (currentlyIn) {
+          setIsSuccess(true);
+          setMyStatus(lastLog.status);
+        } else {
+          setIsSuccess(false);
+        }
       }
 
+      // Logic to see fellow co-workers currently scanned in
       const latestPerUser = {};
       allLogs.forEach(log => {
-        if (!latestPerUser[log.userId]) latestPerUser[log.userId] = log;
+        // Since it's ordered by desc, the first log we see for a user is their latest
+        if (!latestPerUser[log.userId]) {
+          latestPerUser[log.userId] = log;
+        }
       });
 
-      const active = Object.values(latestPerUser).filter(log => 
+      const active = Object.values(latestPerUser).filter(log =>
         log.type === "QR_Scan" && log.userId !== user.uid
       );
       setCoworkers(active);
@@ -96,22 +102,22 @@ export default function ScanPage() {
     if (!businessId) return toast.error("Invalid Handshake.");
 
     setIsProcessing(true);
-    const isOut = hasCheckedIn && !hasCheckedOut;
+    const isCheckingOut = hasCheckedIn && !hasCheckedOut;
     const rules = businessData?.settings || {};
-    const toastId = toast.loading(isOut ? "Ending shift..." : "Verifying...");
+    const toastId = toast.loading(isCheckingOut ? "Ending shift..." : "Verifying...");
 
-    // NEW LOGIC: Define the save function separately so we can call it with or without GPS
     const saveLog = async (lat = 0, lng = 0) => {
       try {
-        let status = "Present";
-        if (!isOut) {
+        let statusLabel = "Present";
+
+        if (isCheckingOut) {
+          statusLabel = "Checked-Out";
+        } else {
           const shiftStart = rules.shiftStart || "09:00";
           const [h, m] = shiftStart.split(":").map(Number);
-          const deadline = new Date(); 
+          const deadline = new Date();
           deadline.setHours(h, m + (Number(rules.gracePeriod) || 0), 0, 0);
-          status = new Date().getTime() > deadline.getTime() ? "Late" : "On-Time";
-        } else {
-          status = "Checked-Out";
+          statusLabel = new Date().getTime() > deadline.getTime() ? "Late" : "On-Time";
         }
 
         await addDoc(collection(db, "attendance_logs"), {
@@ -120,17 +126,13 @@ export default function ScanPage() {
           userId: user.uid,
           userName: user.displayName || user.email.split('@')[0],
           userPhoto: user.photoURL || "",
-          status,
+          status: statusLabel,
           timestamp: serverTimestamp(),
           location: { lat, lng },
-          type: isOut ? "Check_Out" : "QR_Scan"
+          type: isCheckingOut ? "Check_Out" : "QR_Scan"
         });
 
-        setMyStatus(status);
-        if (!isOut) setIsSuccess(true);
-        else { setIsSuccess(false); setHasCheckedOut(true); }
-
-        toast.success(isOut ? "Shift ended!" : `Verified: ${status}`, { id: toastId });
+        toast.success(isCheckingOut ? "Shift ended!" : `Verified: ${statusLabel}`, { id: toastId });
       } catch (e) {
         toast.error("Sync error", { id: toastId });
       } finally {
@@ -138,18 +140,17 @@ export default function ScanPage() {
       }
     };
 
-    // If GPS is BYPASSED (gpsRequired is false), save immediately
     if (rules.gpsRequired === false) {
       return saveLog();
     }
 
-    // Otherwise, attempt to get location with a strict timeout
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const { latitude, longitude } = pos.coords;
         if (rules.location?.lat) {
           const dist = calculateDistance(latitude, longitude, rules.location.lat, rules.location.lng);
-          if (dist > (Number(rules.geofenceRadius) || 200)) {
+          const radius = Number(rules.geofenceRadius) || 250;
+          if (dist > radius) {
             toast.error(`Out of Bounds: ${Math.round(dist)}m`, { id: toastId });
             setIsProcessing(false);
             return;
@@ -158,22 +159,19 @@ export default function ScanPage() {
         saveLog(latitude, longitude);
       },
       (error) => {
-        let msg = "GPS Error";
-        if (error.code === 1) msg = "Location Access Denied";
-        if (error.code === 3) msg = "GPS Timeout: Try again";
-        toast.error(msg, { id: toastId });
+        toast.error("GPS Error. Check location settings.", { id: toastId });
         setIsProcessing(false);
       },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 15000 }
     );
   };
 
   const calculateDistance = (lat1, lon1, lat2, lon2) => {
-    const R = 6371e3; 
+    const R = 6371e3;
     const dLat = (lat2 - lat1) * (Math.PI / 180);
     const dLon = (lon2 - lon1) * (Math.PI / 180);
     const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-              Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   };
 
@@ -189,6 +187,7 @@ export default function ScanPage() {
     </div>
   );
 
+  // VIEW AFTER SCANNING (SUCCESS STATE)
   if (isSuccess) {
     return (
       <div className="min-h-screen bg-slate-950 text-white p-6 flex flex-col items-center">
@@ -202,35 +201,37 @@ export default function ScanPage() {
           </div>
           <h1 className="text-4xl font-black italic uppercase">Verified: {myStatus}</h1>
           <p className="font-bold text-white/80 mt-1 uppercase tracking-widest text-[10px]">{user?.displayName || user?.email}</p>
-          
+
           <button onClick={handleAttendance} disabled={isProcessing} className="mt-8 w-full py-5 bg-black/20 hover:bg-black/40 rounded-[2rem] flex items-center justify-center gap-3 font-black uppercase text-[11px] border border-white/10">
-            {isProcessing ? <Loader2 className="animate-spin" /> : <><LogOut size={18}/> End My Session</>}
+            {isProcessing ? <Loader2 className="animate-spin" /> : <><LogOut size={18} /> End My Session</>}
           </button>
         </div>
 
+        {/* FELLOW COWORKERS LIST */}
         <div className="w-full max-w-md bg-slate-900/50 rounded-[3rem] p-8 border border-white/5 backdrop-blur-xl">
-            <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-400 mb-6">On-Site Coworkers ({coworkers.length})</h3>
-            <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-              {coworkers.length > 0 ? coworkers.map((w) => (
-                <div key={w.id} className="flex items-center gap-3 p-3 bg-white/5 rounded-2xl border border-white/5">
-                  <img 
-                    src={w.userPhoto || `https://ui-avatars.com/api/?name=${w.userName}`} 
-                    referrerPolicy="no-referrer"
-                    className="h-10 w-10 rounded-xl object-cover" 
-                    alt=""
-                  />
-                  <div>
-                    <p className="text-sm font-bold">{w.userName}</p>
-                    <p className="text-[9px] text-slate-500 font-black uppercase">{w.status} • {formatTimeLabel(w.timestamp)}</p>
-                  </div>
+          <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-400 mb-6">On-Site Coworkers ({coworkers.length})</h3>
+          <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+            {coworkers.length > 0 ? coworkers.map((w) => (
+              <div key={w.id} className="flex items-center gap-3 p-3 bg-white/5 rounded-2xl border border-white/5">
+                <img
+                  src={w.userPhoto || `https://ui-avatars.com/api/?name=${w.userName}`}
+                  referrerPolicy="no-referrer"
+                  className="h-10 w-10 rounded-xl object-cover"
+                  alt=""
+                />
+                <div>
+                  <p className="text-sm font-bold">{w.userName}</p>
+                  <p className="text-[9px] text-slate-500 font-black uppercase">{w.status} • {formatTimeLabel(w.timestamp)}</p>
                 </div>
-              )) : <p className="text-center py-4 text-slate-600 font-bold text-xs italic">Working solo right now...</p>}
-            </div>
+              </div>
+            )) : <p className="text-center py-4 text-slate-600 font-bold text-xs italic">Working solo right now...</p>}
+          </div>
         </div>
       </div>
     );
   }
 
+  // DEFAULT VIEW (READY TO SCAN)
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-sm bg-white rounded-[4rem] p-10 shadow-2xl border-b-[12px] border-slate-200">
@@ -250,6 +251,7 @@ export default function ScanPage() {
           <div className="bg-emerald-50 rounded-[2.5rem] p-8 text-center border border-emerald-100">
             <CheckCircle size={48} className="text-emerald-500 mx-auto mb-3" />
             <p className="text-xs font-black text-emerald-900 uppercase italic">Shift complete. See you tomorrow!</p>
+            <button onClick={() => window.location.reload()} className="mt-4 text-[10px] underline text-slate-400">Scan Again</button>
           </div>
         ) : (
           <button onClick={handleAttendance} disabled={isProcessing} className="w-full py-8 rounded-[2.5rem] font-black uppercase bg-slate-900 text-white hover:bg-blue-600 transition-all shadow-xl active:scale-95">

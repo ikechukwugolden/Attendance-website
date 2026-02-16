@@ -21,7 +21,7 @@ export default function AttendanceTable() {
       where("businessId", "==", user.uid),
       where("timestamp", ">=", startOfToday), // Filter for today only
       orderBy("timestamp", "desc"),
-      limit(10)
+      limit(20)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
