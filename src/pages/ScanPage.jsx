@@ -3,10 +3,10 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import { db } from "../lib/firebase";
 import {
   collection, addDoc, serverTimestamp, doc, getDoc,
-  query, where, orderBy, onSnapshot, setDoc // <--- Add setDoc here
+  query, where, orderBy, onSnapshot, setDoc
 } from "firebase/firestore";
 import { useAuth } from "../context/AuthContext";
-import { CheckCircle, Loader2, Users, LogOut, Building2 } from "lucide-react";
+import { CheckCircle, Loader2, Users, LogOut, Building2, Clock } from "lucide-react";
 import toast from "react-hot-toast";
 
 export default function ScanPage() {
@@ -61,13 +61,11 @@ export default function ScanPage() {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const allLogs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       const myLogs = allLogs.filter(l => l.userId === user.uid);
-
       const lastLog = myLogs[0];
 
       if (lastLog) {
         const currentlyIn = lastLog.type === "QR_Scan";
         const currentlyOut = lastLog.type === "Check_Out";
-
         setHasCheckedIn(currentlyIn);
         setHasCheckedOut(currentlyOut);
 
@@ -79,10 +77,8 @@ export default function ScanPage() {
         }
       }
 
-      // Logic to see fellow co-workers currently scanned in
       const latestPerUser = {};
       allLogs.forEach(log => {
-        // Since it's ordered by desc, the first log we see for a user is their latest
         if (!latestPerUser[log.userId]) {
           latestPerUser[log.userId] = log;
         }
@@ -97,7 +93,6 @@ export default function ScanPage() {
     return () => unsubscribe();
   }, [user, businessId]);
 
-  // This logic goes in your Scan/Attendance handler
   const handleAttendance = async () => {
     if (!user || !businessId) return toast.error("Missing user or business ID");
 
@@ -105,9 +100,33 @@ export default function ScanPage() {
     try {
       const userRef = doc(db, "users", user.uid);
       const isCheckingOut = hasCheckedIn && !hasCheckedOut;
-      const statusText = "Present"; // You can change this to "Late" based on time
+      
+      // --- START TIME LOGIC ---
+      let statusText = "Present";
+      
+      if (!isCheckingOut && businessData?.settings) {
+        const { shiftStart, gracePeriod = 0 } = businessData.settings;
+        
+        if (shiftStart) {
+          const now = new Date();
+          const [sHour, sMin] = shiftStart.split(":").map(Number);
+          
+          const shiftTime = new Date();
+          shiftTime.setHours(sHour, sMin, 0, 0);
 
-      // 1. SET user data
+          const graceTime = new Date(shiftTime.getTime() + gracePeriod * 60000);
+
+          if (now > graceTime) {
+            statusText = "Late";
+          } else if (now < shiftTime) {
+            statusText = "Early";
+          } else {
+            statusText = "On-Time";
+          }
+        }
+      }
+      // --- END TIME LOGIC ---
+
       await setDoc(userRef, {
         displayName: user.displayName || user.email.split('@')[0],
         email: user.email,
@@ -116,7 +135,6 @@ export default function ScanPage() {
         lastActive: serverTimestamp()
       }, { merge: true });
 
-      // 2. Add the activity log
       await addDoc(collection(db, "attendance_logs"), {
         businessId,
         userId: user.uid,
@@ -127,7 +145,6 @@ export default function ScanPage() {
         type: isCheckingOut ? "Check_Out" : "QR_Scan"
       });
 
-      // --- ADD THESE LINES TO TRIGGER SUCCESS VIEW IMMEDIATELY ---
       if (!isCheckingOut) {
         setMyStatus(statusText);
         setIsSuccess(true);
@@ -137,9 +154,8 @@ export default function ScanPage() {
         setHasCheckedOut(true);
         setHasCheckedIn(false);
       }
-      // -----------------------------------------------------------
 
-      toast.success(isCheckingOut ? "Session ended" : "Presence confirmed!");
+      toast.success(isCheckingOut ? "Session ended" : `Confirmed: ${statusText}`);
 
     } catch (error) {
       console.error("Error saving attendance:", error);
@@ -147,15 +163,6 @@ export default function ScanPage() {
     } finally {
       setIsProcessing(false);
     }
-  };
-
-  const calculateDistance = (lat1, lon1, lat2, lon2) => {
-    const R = 6371e3;
-    const dLat = (lat2 - lat1) * (Math.PI / 180);
-    const dLon = (lon2 - lon1) * (Math.PI / 180);
-    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   };
 
   const formatTimeLabel = (timestamp) => {
@@ -170,11 +177,18 @@ export default function ScanPage() {
     </div>
   );
 
-  // VIEW AFTER SCANNING (SUCCESS STATE)
   if (isSuccess) {
+    // Dynamic styling based on status
+    const statusConfig = {
+      "Late": "bg-rose-600 border-rose-900",
+      "Early": "bg-blue-600 border-blue-900",
+      "On-Time": "bg-emerald-600 border-emerald-900",
+      "Present": "bg-emerald-600 border-emerald-900"
+    };
+
     return (
       <div className="min-h-screen bg-slate-950 text-white p-6 flex flex-col items-center">
-        <div className={`w-full max-w-md p-10 rounded-[3.5rem] text-center mb-8 border-b-8 shadow-2xl ${myStatus === 'Late' ? 'bg-rose-600 border-rose-900' : 'bg-emerald-600 border-emerald-900'}`}>
+        <div className={`w-full max-w-md p-10 rounded-[3.5rem] text-center mb-8 border-b-8 shadow-2xl transition-all duration-500 ${statusConfig[myStatus] || 'bg-slate-800 border-slate-900'}`}>
           <div className="w-24 h-24 rounded-3xl mx-auto mb-4 border-4 border-white/20 overflow-hidden shadow-xl bg-white/10">
             {user?.photoURL ? (
               <img src={user.photoURL} referrerPolicy="no-referrer" alt="" className="w-full h-full object-cover" />
@@ -182,15 +196,25 @@ export default function ScanPage() {
               <Users className="m-auto h-full w-1/2 text-white/50" />
             )}
           </div>
-          <h1 className="text-4xl font-black italic uppercase">Verified: {myStatus}</h1>
-          <p className="font-bold text-white/80 mt-1 uppercase tracking-widest text-[10px]">{user?.displayName || user?.email}</p>
+          
+          <div className="flex items-center justify-center gap-2 mb-1">
+             <Clock size={16} className="opacity-50" />
+             <span className="text-[10px] font-black uppercase tracking-widest opacity-80">Arrival Status</span>
+          </div>
+          
+          <h1 className="text-4xl font-black italic uppercase tracking-tighter">
+            {myStatus}
+          </h1>
+          
+          <p className="font-bold text-white/80 mt-2 uppercase tracking-widest text-[10px]">
+            {user?.displayName || user?.email}
+          </p>
 
-          <button onClick={handleAttendance} disabled={isProcessing} className="mt-8 w-full py-5 bg-black/20 hover:bg-black/40 rounded-[2rem] flex items-center justify-center gap-3 font-black uppercase text-[11px] border border-white/10">
+          <button onClick={handleAttendance} disabled={isProcessing} className="mt-8 w-full py-5 bg-black/20 hover:bg-black/40 rounded-[2rem] flex items-center justify-center gap-3 font-black uppercase text-[11px] border border-white/10 transition-all active:scale-95">
             {isProcessing ? <Loader2 className="animate-spin" /> : <><LogOut size={18} /> End My Session</>}
           </button>
         </div>
 
-        {/* FELLOW COWORKERS LIST */}
         <div className="w-full max-w-md bg-slate-900/50 rounded-[3rem] p-8 border border-white/5 backdrop-blur-xl">
           <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-400 mb-6">On-Site Coworkers ({coworkers.length})</h3>
           <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
@@ -204,7 +228,9 @@ export default function ScanPage() {
                 />
                 <div>
                   <p className="text-sm font-bold">{w.userName}</p>
-                  <p className="text-[9px] text-slate-500 font-black uppercase">{w.status} • {formatTimeLabel(w.timestamp)}</p>
+                  <p className={`text-[9px] font-black uppercase ${w.status === 'Late' ? 'text-rose-400' : 'text-emerald-400'}`}>
+                    {w.status} • {formatTimeLabel(w.timestamp)}
+                  </p>
                 </div>
               </div>
             )) : <p className="text-center py-4 text-slate-600 font-bold text-xs italic">Working solo right now...</p>}
@@ -214,7 +240,6 @@ export default function ScanPage() {
     );
   }
 
-  // DEFAULT VIEW (READY TO SCAN)
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-sm bg-white rounded-[4rem] p-10 shadow-2xl border-b-[12px] border-slate-200">

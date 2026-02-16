@@ -80,14 +80,12 @@ export default function Settings() {
     fetchSettings();
   }, [user]);
 
-  // SMART SEARCH: Handles "Third Floor", "RAD5", and Coordinates
   const handleSearch = async (e) => {
     e?.preventDefault();
     if (!searchQuery.trim()) return;
 
     const toastId = toast.loading("Locating building...");
     try {
-      // 1. Check for raw coordinates first
       const coordMatch = searchQuery.match(/^(-?\d+\.\d+),\s*(-?\d+\.\d+)$/);
       if (coordMatch) {
         setTempLocation([parseFloat(coordMatch[1]), parseFloat(coordMatch[2])]);
@@ -95,7 +93,6 @@ export default function Settings() {
         return;
       }
 
-      // 2. Clean query: Remove "Floor" words that break geocoders
       const cleaned = searchQuery
         .replace(/(?:first|second|third|fourth|fifth|floor|rm|room|suite|level)/gi, "")
         .replace(/\s+/g, ' ')
@@ -191,7 +188,6 @@ export default function Settings() {
       <form onSubmit={handleSave} className="grid grid-cols-1 lg:grid-cols-3 gap-10">
         <div className="lg:col-span-2 space-y-10">
           
-          {/* Business Profile */}
           <section className="bg-white p-8 md:p-10 rounded-[3.5rem] border border-slate-100 shadow-xl">
             <h3 className="font-black text-slate-900 uppercase mb-8">Business Profile</h3>
             <div className="space-y-6">
@@ -214,7 +210,6 @@ export default function Settings() {
             </div>
           </section>
 
-          {/* Location Rules */}
           <section className="bg-white p-8 rounded-[3.5rem] border border-slate-100 shadow-xl">
             <div className="flex justify-between items-center mb-8">
               <h3 className="font-black text-slate-900 uppercase">Location Rules</h3>
@@ -303,13 +298,28 @@ export default function Settings() {
               )}
 
               <div className="grid grid-cols-2 gap-4">
+                {/* NEW SHIFT START INPUT */}
                 <div className="col-span-2 md:col-span-1">
-                  <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Geofence Radius (Meters)</label>
-                  <input type="number" value={config.geofenceRadius} onChange={(e) => setConfig({...config, geofenceRadius: parseInt(e.target.value) || 0})} className="w-full p-4 bg-slate-50 rounded-2xl font-black text-lg" />
+                  <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Shift Start Time</label>
+                  <div className="relative">
+                    <Clock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                    <input 
+                      type="time" 
+                      value={config.shiftStart} 
+                      onChange={(e) => setConfig({...config, shiftStart: e.target.value})} 
+                      className="w-full p-4 pl-12 bg-slate-50 rounded-2xl font-black text-lg focus:ring-2 focus:ring-blue-500 outline-none transition-all" 
+                    />
+                  </div>
                 </div>
+
                 <div className="col-span-2 md:col-span-1">
                   <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Grace Period (Min)</label>
-                  <input type="number" value={config.gracePeriod} onChange={(e) => setConfig({...config, gracePeriod: parseInt(e.target.value) || 0})} className="w-full p-4 bg-slate-50 rounded-2xl font-black text-lg" />
+                  <input type="number" value={config.gracePeriod} onChange={(e) => setConfig({...config, gracePeriod: parseInt(e.target.value) || 0})} className="w-full p-4 bg-slate-50 rounded-2xl font-black text-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                </div>
+
+                <div className="col-span-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block">Geofence Radius (Meters)</label>
+                  <input type="number" value={config.geofenceRadius} onChange={(e) => setConfig({...config, geofenceRadius: parseInt(e.target.value) || 0})} className="w-full p-4 bg-slate-50 rounded-2xl font-black text-lg focus:ring-2 focus:ring-blue-500 outline-none" />
                 </div>
               </div>
             </div>
@@ -318,7 +328,6 @@ export default function Settings() {
           <AdminQR />
         </div>
 
-        {/* Save Sidebar */}
         <div className="lg:col-span-1">
           <div className="bg-slate-900 p-8 rounded-[3rem] sticky top-8 text-white shadow-2xl border border-slate-800">
             <div className="flex items-center gap-2 mb-4 text-emerald-400"><ShieldCheck size={18} /><h4 className="font-black uppercase text-[10px] tracking-widest">System Guard</h4></div>
