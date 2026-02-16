@@ -97,73 +97,31 @@ export default function ScanPage() {
     return () => unsubscribe();
   }, [user, businessId]);
 
+  // This logic goes in your Scan/Attendance handler
   const handleAttendance = async () => {
-    if (!user) return navigate("/login");
-    if (!businessId) return toast.error("Invalid Handshake.");
+    if (!user) return;
 
-    setIsProcessing(true);
-    const isCheckingOut = hasCheckedIn && !hasCheckedOut;
-    const rules = businessData?.settings || {};
-    const toastId = toast.loading(isCheckingOut ? "Ending shift..." : "Verifying...");
+    // 1. First, ensure the user exists in the 'users' collection 
+    // and is linked to your business so they show up in the Employees page.
+    const userRef = doc(db, "users", user.uid);
 
-    const saveLog = async (lat = 0, lng = 0) => {
-      try {
-        let statusLabel = "Present";
+    await updateDoc(userRef, {
+      displayName: user.displayName || user.email.split('@')[0],
+      email: user.email,
+      photoURL: user.photoURL || "",
+      businessId: businessId, // This links them to your directory
+      lastActive: serverTimestamp()
+    }, { merge: true }); // Merge ensures we don't overwrite their department
 
-        if (isCheckingOut) {
-          statusLabel = "Checked-Out";
-        } else {
-          const shiftStart = rules.shiftStart || "09:00";
-          const [h, m] = shiftStart.split(":").map(Number);
-          const deadline = new Date();
-          deadline.setHours(h, m + (Number(rules.gracePeriod) || 0), 0, 0);
-          statusLabel = new Date().getTime() > deadline.getTime() ? "Late" : "On-Time";
-        }
-
-        await addDoc(collection(db, "attendance_logs"), {
-          businessId,
-          businessName: businessData?.businessName || "Terminal",
-          userId: user.uid,
-          userName: user.displayName || user.email.split('@')[0],
-          userPhoto: user.photoURL || "",
-          status: statusLabel,
-          timestamp: serverTimestamp(),
-          location: { lat, lng },
-          type: isCheckingOut ? "Check_Out" : "QR_Scan"
-        });
-
-        toast.success(isCheckingOut ? "Shift ended!" : `Verified: ${statusLabel}`, { id: toastId });
-      } catch (e) {
-        toast.error("Sync error", { id: toastId });
-      } finally {
-        setIsProcessing(false);
-      }
-    };
-
-    if (rules.gpsRequired === false) {
-      return saveLog();
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const { latitude, longitude } = pos.coords;
-        if (rules.location?.lat) {
-          const dist = calculateDistance(latitude, longitude, rules.location.lat, rules.location.lng);
-          const radius = Number(rules.geofenceRadius) || 250;
-          if (dist > radius) {
-            toast.error(`Out of Bounds: ${Math.round(dist)}m`, { id: toastId });
-            setIsProcessing(false);
-            return;
-          }
-        }
-        saveLog(latitude, longitude);
-      },
-      (error) => {
-        toast.error("GPS Error. Check location settings.", { id: toastId });
-        setIsProcessing(false);
-      },
-      { enableHighAccuracy: true, timeout: 15000 }
-    );
+    // 2. Then save the log as you normally do
+    await addDoc(collection(db, "attendance_logs"), {
+      businessId,
+      userId: user.uid,
+      userName: user.displayName || user.email.split('@')[0],
+      status: "Present",
+      timestamp: serverTimestamp(),
+      type: "QR_Scan"
+    });
   };
 
   const calculateDistance = (lat1, lon1, lat2, lon2) => {
