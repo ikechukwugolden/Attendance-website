@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { db } from "../lib/firebase";
-import {
-  collection, addDoc, serverTimestamp, doc, getDoc,
-  query, where, orderBy, onSnapshot
+import { 
+  collection, addDoc, serverTimestamp, doc, getDoc, 
+  query, where, orderBy, onSnapshot, setDoc // <--- Add setDoc here
 } from "firebase/firestore";
 import { useAuth } from "../context/AuthContext";
 import { CheckCircle, Loader2, Users, LogOut, Building2 } from "lucide-react";
@@ -99,29 +99,47 @@ export default function ScanPage() {
 
   // This logic goes in your Scan/Attendance handler
   const handleAttendance = async () => {
-    if (!user) return;
+    if (!user || !businessId) return toast.error("Missing user or business ID");
 
-    // 1. First, ensure the user exists in the 'users' collection 
-    // and is linked to your business so they show up in the Employees page.
-    const userRef = doc(db, "users", user.uid);
+    setIsProcessing(true);
+    try {
+      const userRef = doc(db, "users", user.uid);
+      const isCheckingOut = hasCheckedIn && !hasCheckedOut;
 
-    await updateDoc(userRef, {
-      displayName: user.displayName || user.email.split('@')[0],
-      email: user.email,
-      photoURL: user.photoURL || "",
-      businessId: businessId, // This links them to your directory
-      lastActive: serverTimestamp()
-    }, { merge: true }); // Merge ensures we don't overwrite their department
+      // 1. SET user data (creates or updates)
+      // This ensures they show up in your Employees list immediately
+      await setDoc(userRef, {
+        displayName: user.displayName || user.email.split('@')[0],
+        email: user.email,
+        photoURL: user.photoURL || "",
+        businessId: businessId,
+        lastActive: serverTimestamp()
+      }, { merge: true });
 
-    // 2. Then save the log as you normally do
-    await addDoc(collection(db, "attendance_logs"), {
-      businessId,
-      userId: user.uid,
-      userName: user.displayName || user.email.split('@')[0],
-      status: "Present",
-      timestamp: serverTimestamp(),
-      type: "QR_Scan"
-    });
+      // 2. Add the activity log
+      await addDoc(collection(db, "attendance_logs"), {
+        businessId,
+        userId: user.uid,
+        userName: user.displayName || user.email.split('@')[0],
+        userPhoto: user.photoURL || "",
+        status: "Present", // You can add your Late/On-Time logic here later
+        timestamp: serverTimestamp(),
+        type: isCheckingOut ? "Check_Out" : "QR_Scan"
+      });
+
+      toast.success(isCheckingOut ? "Session ended" : "Presence confirmed!");
+
+      // If checking out, we can reset the success view
+      if (isCheckingOut) {
+        setIsSuccess(false);
+      }
+
+    } catch (error) {
+      console.error("Error saving attendance:", error);
+      toast.error("Failed to save. Try again.");
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const calculateDistance = (lat1, lon1, lat2, lon2) => {
