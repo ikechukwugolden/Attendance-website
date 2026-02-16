@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { db } from "../lib/firebase";
-import { 
-  collection, addDoc, serverTimestamp, doc, getDoc, 
+import {
+  collection, addDoc, serverTimestamp, doc, getDoc,
   query, where, orderBy, onSnapshot, setDoc // <--- Add setDoc here
 } from "firebase/firestore";
 import { useAuth } from "../context/AuthContext";
@@ -105,9 +105,9 @@ export default function ScanPage() {
     try {
       const userRef = doc(db, "users", user.uid);
       const isCheckingOut = hasCheckedIn && !hasCheckedOut;
+      const statusText = "Present"; // You can change this to "Late" based on time
 
-      // 1. SET user data (creates or updates)
-      // This ensures they show up in your Employees list immediately
+      // 1. SET user data
       await setDoc(userRef, {
         displayName: user.displayName || user.email.split('@')[0],
         email: user.email,
@@ -122,17 +122,24 @@ export default function ScanPage() {
         userId: user.uid,
         userName: user.displayName || user.email.split('@')[0],
         userPhoto: user.photoURL || "",
-        status: "Present", // You can add your Late/On-Time logic here later
+        status: statusText,
         timestamp: serverTimestamp(),
         type: isCheckingOut ? "Check_Out" : "QR_Scan"
       });
 
-      toast.success(isCheckingOut ? "Session ended" : "Presence confirmed!");
-
-      // If checking out, we can reset the success view
-      if (isCheckingOut) {
+      // --- ADD THESE LINES TO TRIGGER SUCCESS VIEW IMMEDIATELY ---
+      if (!isCheckingOut) {
+        setMyStatus(statusText);
+        setIsSuccess(true);
+        setHasCheckedIn(true);
+      } else {
         setIsSuccess(false);
+        setHasCheckedOut(true);
+        setHasCheckedIn(false);
       }
+      // -----------------------------------------------------------
+
+      toast.success(isCheckingOut ? "Session ended" : "Presence confirmed!");
 
     } catch (error) {
       console.error("Error saving attendance:", error);
