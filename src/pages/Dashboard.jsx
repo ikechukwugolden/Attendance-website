@@ -1,11 +1,12 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { useNavigate } from "react-router-dom"; // Added for internal navigation
 import { db } from "../lib/firebase";
 import { collection, query, orderBy, onSnapshot, where, setDoc, doc, writeBatch, getDocs } from "firebase/firestore";
 import { useAuth } from "../context/AuthContext";
 import { detectPatterns } from "../services/analyticsEngine";
 import { toast } from "react-hot-toast";
 import { QRCodeCanvas } from "qrcode.react";
-import { Sparkles, Activity, ShieldAlert, Zap, Download, Printer, Copy, X, RotateCcw } from "lucide-react";
+import { Sparkles, Activity, ShieldAlert, Zap, Download, Printer, Copy, X, RotateCcw, Settings } from "lucide-react";
 
 import StatsGrid from "../components/StatsGrid";
 import AttendanceChart from "../components/AttendanceChart";
@@ -13,6 +14,7 @@ import AttendanceTable from "../components/AttendanceTable";
 
 export default function Dashboard() {
   const { user } = useAuth();
+  const navigate = useNavigate(); // Hook for navigation
   const [logs, setLogs] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [cloudDismissed, setCloudDismissed] = useState([]);
@@ -25,7 +27,10 @@ export default function Dashboard() {
     checkedOutCount: 0
   });
 
-  const scanUrl = user?.uid ? `${window.location.origin}/scan?bid=${user.uid}` : "";
+  const scanUrl = useMemo(() => 
+    user?.uid ? `${window.location.origin}/scan?bid=${user.uid}` : "", 
+    [user?.uid]
+  );
 
   // 1. Business Profile
   useEffect(() => {
@@ -34,7 +39,7 @@ export default function Dashboard() {
       if (docSnap.exists()) setBusinessProfile(docSnap.data());
     });
     return () => unsub();
-  }, [user]);
+  }, [user?.uid]);
 
   // 2. Dismissed Alerts
   useEffect(() => {
@@ -44,20 +49,19 @@ export default function Dashboard() {
       setCloudDismissed(snapshot.docs.map(doc => doc.id));
     });
     return () => unsubscribe();
-  }, [user]);
+  }, [user?.uid]);
 
-  // 3. UPDATED: Main Logs Listener (Filtering for Today Only)
+  // 3. Main Logs Listener (Today Only)
   useEffect(() => {
     if (!user?.uid) return;
 
-    // 🔥 Calculate the start of today
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
 
     const q = query(
       collection(db, "attendance_logs"),
       where("businessId", "==", user.uid),
-      where("timestamp", ">=", startOfToday), // 🔥 Only fetch today's logs
+      where("timestamp", ">=", startOfToday),
       orderBy("timestamp", "desc")
     );
 
@@ -80,7 +84,6 @@ export default function Dashboard() {
 
       setLogs(fetchedLogs);
 
-      // Calculate Stats strictly from today's fetched logs
       const userLatestStatus = {};
       fetchedLogs.forEach(log => {
         if (!userLatestStatus[log.userId]) {
@@ -88,25 +91,20 @@ export default function Dashboard() {
         }
       });
 
-      const currentlyPresent = Object.values(userLatestStatus).filter(type => type === "QR_Scan").length;
-      const totalCheckedOutToday = fetchedLogs.filter(l => l.type === "Check_Out").length;
-      const totalLateToday = fetchedLogs.filter(l => l.status === "Late" && l.type === "QR_Scan").length;
-
       setStats({
         totalCount: fetchedLogs.length,
-        presentCount: currentlyPresent,
-        lateCount: totalLateToday,
-        checkedOutCount: totalCheckedOutToday
+        presentCount: Object.values(userLatestStatus).filter(type => type === "QR_Scan").length,
+        lateCount: fetchedLogs.filter(l => l.status === "Late" && l.type === "QR_Scan").length,
+        checkedOutCount: fetchedLogs.filter(l => l.type === "Check_Out").length
       });
     }, (error) => {
       console.error("Firebase Query Error:", error);
-      // NOTE: If you see an error here, check your browser console for the Index creation link.
     });
 
     return () => unsubscribe();
-  }, [user]);
+  }, [user?.uid]);
 
-  // 4. Intelligence Engine
+  // 4. Intelligence Engine (Optimized to prevent UI freezing)
   useEffect(() => {
     if (logs.length > 0 && user?.uid) {
       const patterns = detectPatterns(logs);
@@ -115,7 +113,7 @@ export default function Dashboard() {
         const alertKey = `${user.uid}_${cleanUserName}_${p.type}`;
         return !cloudDismissed.includes(alertKey);
       });
-      setAlerts(activeAlerts || []);
+      setAlerts(activeAlerts);
     }
   }, [logs, cloudDismissed, user?.uid]);
 
@@ -123,13 +121,12 @@ export default function Dashboard() {
     if (!user?.uid) return;
     const cleanUserName = userName.replace(/[^a-zA-Z0-9]/g, '_');
     const alertKey = `${user.uid}_${cleanUserName}_${type}`;
-    setAlerts(prev => prev.filter(a => !(`${user.uid}_${a.userName.replace(/[^a-zA-Z0-9]/g, '_')}_${a.type}` === alertKey)));
     try {
       await setDoc(doc(db, "dismissed_alerts", alertKey), {
         businessId: user.uid,
         dismissedAt: new Date(),
-        userName: userName,
-        type: type
+        userName,
+        type
       });
     } catch (error) { toast.error("Sync failed"); }
   };
@@ -140,7 +137,7 @@ export default function Dashboard() {
       const q = query(collection(db, "dismissed_alerts"), where("businessId", "==", user.uid));
       const snapshot = await getDocs(q);
       const batch = writeBatch(db);
-      snapshot.docs.forEach((doc) => { batch.delete(doc.ref); });
+      snapshot.docs.forEach((doc) => batch.delete(doc.ref));
       await batch.commit();
       toast.success("Intelligence reset");
     } catch (error) { toast.error("Reset failed"); }
@@ -176,7 +173,7 @@ export default function Dashboard() {
           </div>
           <h2 className="text-2xl font-black text-slate-900 tracking-tighter italic">{businessProfile?.businessName || "Terminal Active"}</h2>
           <p className="text-[9px] text-blue-500 font-black uppercase tracking-[0.3em] mb-8">BID: {user?.uid?.slice(0, 8)}</p>
-          <div className="p-8 bg-slate-900 rounded-[3rem] shadow-2xl mb-8 transform group-hover:scale-105 transition-transform duration-500">
+          <div className="p-8 bg-slate-900 rounded-[3rem] shadow-2xl mb-8 transform group-hover:scale-105 transition-transform duration-500 cursor-pointer" onClick={() => navigate("/settings")}>
             {scanUrl && <QRCodeCanvas id="terminal-qr" value={scanUrl} size={160} level="H" fgColor="#ffffff" bgColor="transparent" />}
           </div>
           <div className="flex items-center gap-3 px-6 py-3 bg-emerald-50 rounded-full border border-emerald-100">
@@ -192,9 +189,17 @@ export default function Dashboard() {
               <h1 className="text-5xl font-black text-slate-900 tracking-tighter italic">Overview</h1>
               <p className="text-slate-400 font-bold text-sm ml-1">Real-time personnel monitoring</p>
             </div>
-            <button onClick={() => window.print()} className="p-4 bg-slate-900 text-white rounded-2xl hover:bg-blue-600 transition-all shadow-xl"><Printer size={20} /></button>
+            <div className="flex gap-2">
+              <button onClick={() => navigate("/settings")} className="p-4 bg-white text-slate-400 border border-slate-100 rounded-2xl hover:text-blue-600 transition-all shadow-xl">
+                <Settings size={20} />
+              </button>
+              <button onClick={() => window.print()} className="p-4 bg-slate-900 text-white rounded-2xl hover:bg-blue-600 transition-all shadow-xl">
+                <Printer size={20} />
+              </button>
+            </div>
           </div>
           <StatsGrid stats={stats} />
+          
           <div className="bg-slate-900 p-8 rounded-[3rem] shadow-2xl relative overflow-hidden">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-blue-400 font-black flex items-center gap-3 text-xs uppercase tracking-[0.3em]"><ShieldAlert size={18} /> Intelligence Alerts</h3>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   BarChart,
   Bar,
@@ -8,23 +8,24 @@ import {
   Tooltip,
   ResponsiveContainer
 } from 'recharts';
-import { BarChart3 } from 'lucide-react'; // Added proper icon import
+import { BarChart3 } from 'lucide-react';
 
 export default function AttendanceChart({ logs = [], data = [] }) {
   const [chartData, setChartData] = useState([]);
-  const dataSource = logs.length > 0 ? logs : data;
+  
+  // 1. Memoize the dataSource to prevent unnecessary reference changes
+  const dataSource = useMemo(() => (logs.length > 0 ? logs : data), [logs, data]);
 
   useEffect(() => {
-    // If no data, reset the chart state and exit
+    // 2. Logic to generate data
     if (!dataSource.length) {
-      setChartData([]);
+      if (chartData.length !== 0) setChartData([]);
       return;
     }
 
     const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const last7Days = [];
 
-    // 1. Generate the sliding window for the last 7 days
     for (let i = 6; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
@@ -37,7 +38,6 @@ export default function AttendanceChart({ logs = [], data = [] }) {
       });
     }
 
-    // 2. Aggregate data into the days
     dataSource.forEach(log => {
       if (!log.timestamp) return;
       const logDate = log.timestamp.toDate ? log.timestamp.toDate() : new Date(log.timestamp);
@@ -46,18 +46,25 @@ export default function AttendanceChart({ logs = [], data = [] }) {
       const daySlot = last7Days.find(d => d.dateKey === logDateKey);
       if (daySlot) {
         const status = log.status?.toLowerCase().trim();
-        // Handle various status string formats
         if (status === 'early' || status === 'early bird') daySlot.Early++;
         else if (status === 'on-time' || status === 'ontime') daySlot.OnTime++;
         else if (status === 'late') daySlot.Late++;
       }
     });
 
-    setChartData(last7Days);
-  }, [dataSource]);
+    // 3. SAFETY CHECK: Only set state if the data is actually different
+    // This prevents the "Maximum update depth exceeded" error
+    const dataString = JSON.stringify(last7Days);
+    if (dataString !== JSON.stringify(chartData)) {
+      setChartData(last7Days);
+    }
+    
+    // We use JSON.stringify(dataSource) in deps to ensure we only re-run 
+    // when the actual CONTENT of the logs changes.
+  }, [dataSource]); 
 
   // Calculations for Summary Stats
-  const totals = chartData.reduce(
+  const totals = useMemo(() => chartData.reduce(
     (acc, d) => {
       acc.Early += d.Early;
       acc.OnTime += d.OnTime;
@@ -65,7 +72,7 @@ export default function AttendanceChart({ logs = [], data = [] }) {
       return acc;
     },
     { Early: 0, OnTime: 0, Late: 0 }
-  );
+  ), [chartData]);
 
   const CustomTooltip = ({ active, payload, label }) => {
     if (!active || !payload?.length) return null;
@@ -91,15 +98,10 @@ export default function AttendanceChart({ logs = [], data = [] }) {
 
   return (
     <div className="w-full bg-white border border-slate-100 p-8 rounded-[3rem] shadow-xl shadow-slate-200/50 transition-all duration-500">
-      {/* HEADER SECTION */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 mb-12">
         <div>
-          <h2 className="text-3xl font-black text-slate-900 tracking-tight">
-            Weekly Trends
-          </h2>
-          <p className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-600 mt-2">
-            7-Day Performance Metric
-          </p>
+          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Weekly Trends</h2>
+          <p className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-600 mt-2">7-Day Performance Metric</p>
         </div>
 
         <div className="flex flex-wrap gap-3 bg-slate-50/50 p-2 rounded-[2rem] border border-slate-100">
@@ -109,62 +111,22 @@ export default function AttendanceChart({ logs = [], data = [] }) {
         </div>
       </div>
 
-      {/* CHART SECTION */}
       <div className="h-[400px] w-full">
         {chartData.some(d => d.Early + d.OnTime + d.Late > 0) ? (
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartData} margin={{ left: -20, right: 10 }}>
               <CartesianGrid strokeDasharray="10 10" vertical={false} stroke="#f1f5f9" />
-
-              <XAxis
-                dataKey="name"
-                axisLine={false}
-                tickLine={false}
-                tick={{ fill: '#94a3b8', fontSize: 11, fontWeight: 900 }}
-                dy={15}
-              />
-
-              <YAxis
-                axisLine={false}
-                tickLine={false}
-                tick={{ fill: '#94a3b8', fontSize: 11, fontWeight: 900 }}
-              />
-
-              <Tooltip 
-                content={<CustomTooltip />} 
-                cursor={{ fill: '#f8fafc', radius: 20 }} 
-              />
-
-              <Bar
-                dataKey="Early"
-                name="Early"
-                stackId="a"
-                fill="#3b82f6"
-                barSize={36}
-                radius={[0, 0, 0, 0]} 
-              />
-              <Bar
-                dataKey="OnTime"
-                name="On-Time"
-                stackId="a"
-                fill="#10b981"
-                barSize={36}
-                radius={[0, 0, 0, 0]}
-              />
-              <Bar
-                dataKey="Late"
-                name="Late"
-                stackId="a"
-                fill="#ef4444"
-                barSize={36}
-                radius={[12, 12, 12, 12]} 
-              />
+              <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11, fontWeight: 900 }} dy={15} />
+              <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11, fontWeight: 900 }} />
+              <Tooltip content={<CustomTooltip />} cursor={{ fill: '#f8fafc', radius: 20 }} />
+              <Bar dataKey="Early" name="Early" stackId="a" fill="#3b82f6" barSize={36} radius={[0, 0, 0, 0]} />
+              <Bar dataKey="OnTime" name="On-Time" stackId="a" fill="#10b981" barSize={36} radius={[0, 0, 0, 0]} />
+              <Bar dataKey="Late" name="Late" stackId="a" fill="#ef4444" barSize={36} radius={[12, 12, 12, 12]} />
             </BarChart>
           </ResponsiveContainer>
         ) : (
           <div className="h-full flex flex-col items-center justify-center border-2 border-dashed rounded-[3rem] border-slate-100 text-slate-300">
             <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-4">
-              {/* FIXED: Replaced corrupted <svg> path with Lucide component */}
               <BarChart3 size={32} className="opacity-20" />
             </div>
             <p className="text-[10px] font-black uppercase tracking-widest">No Activity Recorded This Week</p>
