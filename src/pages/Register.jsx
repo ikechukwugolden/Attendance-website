@@ -1,9 +1,15 @@
 import { useState } from "react";
-import { auth, db } from "../lib/firebase";
-import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
+// Optimized: importing auth, db, and googleProvider from your config
+import { auth, db, googleProvider } from "../lib/firebase";
+import { 
+  createUserWithEmailAndPassword, 
+  updateProfile, 
+  signInWithPopup 
+} from "firebase/auth";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { useNavigate, Link } from "react-router-dom";
 import { toast } from "react-hot-toast";
+import { FcGoogle } from "react-icons/fc"; 
 
 export default function Register() {
   const navigate = useNavigate();
@@ -14,29 +20,54 @@ export default function Register() {
     password: "",
   });
 
+  // 🔵 Optimized Google Sign-In
+  const handleGoogleSignIn = async () => {
+    setIsLoading(true);
+    try {
+      // Uses the central provider from your lib/firebase.js
+      const result = await signInWithPopup(auth, googleProvider);
+      const user = result.user;
+
+      const userRef = doc(db, "users", user.uid);
+      
+      await setDoc(userRef, {
+        uid: user.uid,
+        fullName: user.displayName,
+        email: user.email,
+        role: "admin",
+        hasCompletedSetup: false,
+        createdAt: serverTimestamp(),
+      }, { merge: true });
+
+      toast.success("Welcome to Attendly!");
+      navigate("/setup-business");
+    } catch (error) {
+      console.error(error);
+      toast.error("Google Sign-In failed.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleRegister = async (e) => {
     e.preventDefault();
     setIsLoading(true);
 
     try {
-      // 1. Create User in Firebase Auth
       const { user } = await createUserWithEmailAndPassword(
         auth, 
         formData.email, 
         formData.password
       );
 
-      // 2. Update Auth Profile (Display Name)
       await updateProfile(user, { displayName: formData.fullName });
 
-      // 3. 🟢 THE MOST IMPORTANT PART: Create Firestore Document
-      // This tells the app: "This user is an ADMIN who needs to SETUP their business"
       await setDoc(doc(db, "users", user.uid), {
         uid: user.uid,
         fullName: formData.fullName,
         email: formData.email,
-        role: "admin", // Sets them as the boss
-        hasCompletedSetup: false, // Triggers the /setup-business page
+        role: "admin", 
+        hasCompletedSetup: false, 
         createdAt: serverTimestamp(),
       });
 
@@ -62,7 +93,22 @@ export default function Register() {
           </div>
 
           <h2 className="text-2xl font-black text-slate-800 mb-2">Create Admin Account</h2>
-          <p className="text-slate-500 text-sm mb-8 font-medium">Start managing your team today.</p>
+          <p className="text-slate-500 text-sm mb-6 font-medium">Start managing your team today.</p>
+
+          <button
+            type="button"
+            onClick={handleGoogleSignIn}
+            disabled={isLoading}
+            className="w-full flex items-center justify-center gap-3 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold py-4 rounded-2xl transition-all mb-6 text-sm shadow-sm"
+          >
+            <FcGoogle size={20} />
+            Continue with Google
+          </button>
+
+          <div className="relative mb-6">
+            <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-100"></div></div>
+            <div className="relative flex justify-center text-[10px] uppercase font-black text-slate-400 tracking-widest bg-white px-4">Or use email</div>
+          </div>
 
           <form onSubmit={handleRegister} className="space-y-4">
             <input 
@@ -91,7 +137,7 @@ export default function Register() {
               disabled={isLoading} 
               className="w-full mt-4 bg-blue-600 hover:bg-slate-900 text-white font-black py-5 rounded-[2rem] transition-all shadow-xl disabled:opacity-50 uppercase text-xs tracking-[0.2em]"
             >
-              {isLoading ? "Creating Station..." : "Get Started"}
+              {isLoading ? "Authenticating..." : "Get Started"}
             </button>
           </form>
 
@@ -106,6 +152,7 @@ export default function Register() {
           <img 
             src="https://images.unsplash.com/photo-1551434678-e076c223a692?auto=format&fit=crop&w=1200&q=80" 
             className="absolute inset-0 w-full h-full object-cover"
+            alt="Business team"
           />
           <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-12 text-center">
             <div className="bg-white/10 backdrop-blur-xl border border-white/20 p-10 rounded-[3rem] max-w-sm">

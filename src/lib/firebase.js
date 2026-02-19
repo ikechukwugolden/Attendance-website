@@ -11,12 +11,15 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
 
-// 🟢 PRODUCTION CHECK: This prevents the app from breaking if Vercel hasn't loaded keys yet
+// PRODUCTION CHECK
 if (!firebaseConfig.apiKey) {
-  console.warn("Firebase API Key is missing. Check your Vercel Environment Variables!");
+  console.warn("Firebase API Key is missing. Check your Vercel/Env variables!");
 }
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+
+// 🔵 Configuration for Google Provider
 export const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({ prompt: 'select_account' });
