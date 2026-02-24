@@ -1,12 +1,18 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { useNavigate } from "react-router-dom"; // Added for internal navigation
+import { useNavigate, Link } from "react-router-dom"; 
 import { db } from "../lib/firebase";
-import { collection, query, orderBy, onSnapshot, where, setDoc, doc, writeBatch, getDocs } from "firebase/firestore";
+import { 
+  collection, query, orderBy, onSnapshot, where, 
+  setDoc, doc, writeBatch, getDocs, updateDoc 
+} from "firebase/firestore"; 
 import { useAuth } from "../context/AuthContext";
 import { detectPatterns } from "../services/analyticsEngine";
 import { toast } from "react-hot-toast";
 import { QRCodeCanvas } from "qrcode.react";
-import { Sparkles, Activity, ShieldAlert, Zap, Download, Printer, Copy, X, RotateCcw, Settings } from "lucide-react";
+import { 
+  Sparkles, Activity, ShieldAlert, Zap, Download, 
+  Printer, Copy, X, RotateCcw, Settings, Home, Calendar 
+} from "lucide-react"; 
 
 import StatsGrid from "../components/StatsGrid";
 import AttendanceChart from "../components/AttendanceChart";
@@ -14,7 +20,7 @@ import AttendanceTable from "../components/AttendanceTable";
 
 export default function Dashboard() {
   const { user } = useAuth();
-  const navigate = useNavigate(); // Hook for navigation
+  const navigate = useNavigate();
   const [logs, setLogs] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [cloudDismissed, setCloudDismissed] = useState([]);
@@ -32,16 +38,36 @@ export default function Dashboard() {
     [user?.uid]
   );
 
-  // 1. Business Profile
+  // 1. Business Profile & Access Guard
   useEffect(() => {
     if (!user?.uid) return;
-    const unsub = onSnapshot(doc(db, "users", user.uid), (docSnap) => {
-      if (docSnap.exists()) setBusinessProfile(docSnap.data());
+    const unsub = onSnapshot(doc(db, "users", user.uid), async (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        
+        // --- AUTO-EXPIRY GUARD ---
+        if (data.plan === 'pro' && data.expiresAt) {
+          const now = new Date();
+          const expiry = data.expiresAt.toDate();
+
+          if (now > expiry) {
+            await updateDoc(doc(db, "users", user.uid), {
+              plan: 'free',
+              subscriptionActive: false
+            });
+            toast.error("Pro subscription expired. Downgraded to Free.", {
+              icon: "⚠️",
+              style: { borderRadius: '20px', background: '#0f172a', color: '#fff' }
+            });
+          }
+        }
+        setBusinessProfile(data);
+      }
     });
     return () => unsub();
   }, [user?.uid]);
 
-  // 2. Dismissed Alerts
+  // 2. Dismissed Alerts Listener
   useEffect(() => {
     if (!user?.uid) return;
     const q = query(collection(db, "dismissed_alerts"), where("businessId", "==", user.uid));
@@ -51,10 +77,9 @@ export default function Dashboard() {
     return () => unsubscribe();
   }, [user?.uid]);
 
-  // 3. Main Logs Listener (Today Only)
+  // 3. Main Logs Listener
   useEffect(() => {
     if (!user?.uid) return;
-
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
 
@@ -67,13 +92,12 @@ export default function Dashboard() {
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetchedLogs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
+      
       if (fetchedLogs.length > 0) {
         const newestLog = fetchedLogs[0];
         if (lastLogId.current && newestLog.id !== lastLogId.current) {
           const isCheckOut = newestLog.type === "Check_Out" || newestLog.status === "Checked-Out";
           const icon = isCheckOut ? "🚪" : newestLog.status === "Late" ? "⏰" : "✅";
-
           toast(`${newestLog.userName} is ${newestLog.status}!`, {
             icon,
             style: { borderRadius: '24px', background: '#0f172a', color: '#fff', fontSize: '12px', fontWeight: '900', padding: '16px 24px' }
@@ -81,14 +105,12 @@ export default function Dashboard() {
         }
         lastLogId.current = newestLog.id;
       }
-
+      
       setLogs(fetchedLogs);
 
       const userLatestStatus = {};
       fetchedLogs.forEach(log => {
-        if (!userLatestStatus[log.userId]) {
-          userLatestStatus[log.userId] = log.type;
-        }
+        if (!userLatestStatus[log.userId]) userLatestStatus[log.userId] = log.type;
       });
 
       setStats({
@@ -97,29 +119,28 @@ export default function Dashboard() {
         lateCount: fetchedLogs.filter(l => l.status === "Late" && l.type === "QR_Scan").length,
         checkedOutCount: fetchedLogs.filter(l => l.type === "Check_Out").length
       });
-    }, (error) => {
-      console.error("Firebase Query Error:", error);
-    });
-
+    }, (error) => console.error("Firebase Query Error:", error));
     return () => unsubscribe();
   }, [user?.uid]);
 
-  // 4. Intelligence Engine (Optimized to prevent UI freezing)
+  // 4. Intelligence Engine
   useEffect(() => {
-    if (logs.length > 0 && user?.uid) {
+    if (user?.uid && logs.length > 0) {
       const patterns = detectPatterns(logs);
       const activeAlerts = patterns.filter(p => {
-        const cleanUserName = p.userName.replace(/[^a-zA-Z0-9]/g, '_');
+        const cleanUserName = String(p.userName).replace(/[^a-zA-Z0-9]/g, '_');
         const alertKey = `${user.uid}_${cleanUserName}_${p.type}`;
         return !cloudDismissed.includes(alertKey);
       });
       setAlerts(activeAlerts);
+    } else {
+      setAlerts([]);
     }
   }, [logs, cloudDismissed, user?.uid]);
 
   const handleDismissAlert = async (userName, type) => {
     if (!user?.uid) return;
-    const cleanUserName = userName.replace(/[^a-zA-Z0-9]/g, '_');
+    const cleanUserName = String(userName).replace(/[^a-zA-Z0-9]/g, '_');
     const alertKey = `${user.uid}_${cleanUserName}_${type}`;
     try {
       await setDoc(doc(db, "dismissed_alerts", alertKey), {
@@ -154,6 +175,35 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-10">
+      
+      {/* STATUS BANNER */}
+      <div className="flex flex-col md:flex-row items-center justify-between gap-4 px-8 py-4 rounded-[2.5rem] bg-white border border-slate-100 shadow-xl">
+        <div className="flex items-center gap-4">
+          <div className={`p-3 rounded-2xl ${businessProfile?.plan === 'pro' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400'}`}>
+            <Zap size={20} fill={businessProfile?.plan === 'pro' ? "currentColor" : "none"} />
+          </div>
+          <div>
+            <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 leading-none mb-1">Subscription Status</h4>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-black italic text-slate-900 uppercase">
+                {businessProfile?.plan === 'pro' ? 'Enterprise Terminal' : 'Standard (Free)'}
+              </span>
+              {businessProfile?.plan === 'pro' && businessProfile.expiresAt && (
+                <span className="flex items-center gap-1 text-[9px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
+                  <Calendar size={10} /> {businessProfile.expiresAt.toDate().toLocaleDateString()}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+        <Link 
+          to="/settings" 
+          className="px-6 py-3 bg-slate-900 text-white hover:bg-blue-600 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg"
+        >
+          {businessProfile?.plan === 'pro' ? 'Manage Billing' : 'Upgrade to Pro'}
+        </Link>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* QR Terminal Card */}
         <div className="lg:col-span-4 bg-white p-8 rounded-[3.5rem] border border-slate-100 shadow-2xl flex flex-col items-center text-center relative overflow-hidden group">
@@ -189,22 +239,34 @@ export default function Dashboard() {
               <h1 className="text-5xl font-black text-slate-900 tracking-tighter italic">Overview</h1>
               <p className="text-slate-400 font-bold text-sm ml-1">Real-time personnel monitoring</p>
             </div>
+            
             <div className="flex gap-2">
+              <Link to="/welcome" className="flex items-center gap-2 p-4 bg-white text-slate-400 border border-slate-100 rounded-2xl hover:text-blue-600 transition-all shadow-xl group/home">
+                <Home size={20} />
+                <span className="text-[10px] font-black uppercase tracking-widest hidden md:inline">Home</span>
+              </Link>
+              
               <button onClick={() => navigate("/settings")} className="p-4 bg-white text-slate-400 border border-slate-100 rounded-2xl hover:text-blue-600 transition-all shadow-xl">
                 <Settings size={20} />
               </button>
+
               <button onClick={() => window.print()} className="p-4 bg-slate-900 text-white rounded-2xl hover:bg-blue-600 transition-all shadow-xl">
                 <Printer size={20} />
               </button>
             </div>
           </div>
+          
           <StatsGrid stats={stats} />
           
-          <div className="bg-slate-900 p-8 rounded-[3rem] shadow-2xl relative overflow-hidden">
+          <div className="bg-slate-900 p-8 rounded-[3rem] shadow-2xl relative overflow-hidden border border-white/5">
             <div className="flex justify-between items-center mb-6">
-              <h3 className="text-blue-400 font-black flex items-center gap-3 text-xs uppercase tracking-[0.3em]"><ShieldAlert size={18} /> Intelligence Alerts</h3>
+              <h3 className="text-blue-400 font-black flex items-center gap-3 text-xs uppercase tracking-[0.3em]">
+                <ShieldAlert size={18} className="animate-pulse" /> Intelligence Alerts
+              </h3>
               {cloudDismissed.length > 0 && (
-                <button onClick={handleResetAlerts} className="flex items-center gap-2 text-[10px] font-black text-blue-400/40 hover:text-blue-400 uppercase tracking-widest transition-all"><RotateCcw size={12} /> Reset Hidden ({cloudDismissed.length})</button>
+                <button onClick={handleResetAlerts} className="flex items-center gap-2 text-[10px] font-black text-blue-400/40 hover:text-blue-400 uppercase tracking-widest transition-all">
+                  <RotateCcw size={12} /> Reset Hidden ({cloudDismissed.length})
+                </button>
               )}
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
