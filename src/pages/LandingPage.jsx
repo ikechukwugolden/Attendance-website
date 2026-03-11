@@ -37,6 +37,7 @@ import {
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { db, auth } from "../lib/firebase";
 import toast from "react-hot-toast";
+import PricingModal from "../components/PricingModal";
 
 // --- Scroll Reveal Hook ---
 const useScrollReveal = () => {
@@ -64,10 +65,11 @@ const LandingPage = () => {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [isProcessing, setIsProcessing] = useState(false); // CRITICAL: Added this state
-  const [billingCycle, setBillingCycle] = useState("monthly"); // Added for price toggle
   const [postText, setPostText] = useState("");
   const [posts, setPosts] = useState([]);
+  const [billingCycle, setBillingCycle] = useState("monthly");
+  const [isPricingOpen, setIsPricingOpen] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const navigate = useNavigate();
   const dropdownRef = useRef(null);
 
@@ -98,7 +100,7 @@ const LandingPage = () => {
       toast.success("Session Terminated Safely");
       setIsProfileOpen(false);
       navigate("/");
-    } catch (err) {
+    } catch {
       toast.error("Logout failed");
     }
   };
@@ -133,85 +135,27 @@ const LandingPage = () => {
       setPostText("");
       toast.dismiss(loadingToast);
       toast.success("Broadcast Live!");
-    } catch (err) {
+    } catch {
       toast.dismiss(loadingToast);
       toast.error("Permission Denied: Unauthorized Terminal");
     }
   };
 
-  // --- STABILIZED PAYSTACK LOGIC ---
-  // --- STABILIZED PAYSTACK LOGIC WITH EXPIRY ---
+  // --- OPEN PRICING MODAL ---
   const handleUpgrade = useCallback(() => {
     if (!user) {
-      toast.error("Auth required for Terminal Upgrade");
+      toast.error("Please login first to upgrade");
       return navigate('/login');
     }
-
-    if (!window.PaystackPop) {
-      toast.error("Payment gateway failed to load. Please refresh.");
-      return;
-    }
-
-    setIsProcessing(true);
-
-    const amount = billingCycle === 'monthly' ? 2500 : 25000;
-
-    const handler = window.PaystackPop.setup({
-      key: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY,
-      email: user.email,
-      amount: amount * 100,
-      currency: "NGN",
-      metadata: {
-        userId: user.uid,
-        planType: billingCycle,
-        custom_fields: [{ display_name: "Plan", variable_name: "plan", value: "enterprise" }]
-      },
-      callback: async function (response) {
-        setIsProcessing(false);
-        const verifying = toast.loading("Verifying transaction...");
-
-        // --- EXPIRY CALCULATION LOGIC ---
-        const now = new Date();
-        const expiryDate = new Date();
-        if (billingCycle === 'monthly') {
-          expiryDate.setMonth(now.getMonth() + 1);
-        } else {
-          expiryDate.setFullYear(now.getFullYear() + 1);
-        }
-
-        try {
-          const userRef = doc(db, "users", user.uid);
-          await updateDoc(userRef, {
-            plan: 'pro',
-            subscriptionActive: true,
-            billingCycle: billingCycle,
-            expiresAt: expiryDate, // Store the date the sub ends
-            lastPaymentRef: response.reference,
-            updatedAt: serverTimestamp()
-          });
-          toast.dismiss(verifying);
-          toast.success("Enterprise Terminal Activated!");
-          navigate('/dashboard');
-        } catch (e) {
-          toast.dismiss(verifying);
-          toast.error("Database update failed. Contact support.");
-        }
-      },
-      onClose: () => {
-        setIsProcessing(false);
-        toast.error("Transaction cancelled.");
-      }
-    });
-
-    handler.openIframe();
-  }, [user, navigate, billingCycle]);
+    setIsPricingOpen(true);
+  }, [user, navigate]);
 
   const handleLike = async (postId) => {
     if (!user) return toast.error("Login to interact");
     try {
       await updateDoc(doc(db, "posts", postId), { likes: increment(1) });
-    } catch (err) {
-      console.error(err);
+    } catch {
+      // Error handled silently
     }
   };
 
@@ -220,7 +164,7 @@ const LandingPage = () => {
       try {
         await deleteDoc(doc(db, "posts", postId));
         toast.success("Broadcast Deleted");
-      } catch (err) {
+      } catch {
         toast.error("Delete failed");
       }
     }
@@ -347,7 +291,7 @@ const LandingPage = () => {
                 rel="noreferrer"
                 className={`flex items-center gap-2 px-3 py-1 rounded-lg border transition-all ${darkMode ? "bg-white/5 border-white/5 text-blue-400" : "bg-black/5 border-black/5 text-blue-600"}`}
               >
-                <Code2 size={12} /> Dev
+                <Code2 size={12} /> Developer
               </a>
             </div>
 
@@ -535,7 +479,7 @@ const LandingPage = () => {
                 Standard
               </h3>
               <div className="text-5xl font-black mb-6">
-                ₦0 <span className="text-xs opacity-50">/mo</span>
+                ₦0 <span className="text-xs opacity-50">/{billingCycle === "monthly" ? "mo" : "yr"}</span>
               </div>
               <ul className="mb-8 space-y-3">
                 <li className="flex items-center gap-2 text-[10px] font-bold uppercase opacity-60">
@@ -563,7 +507,7 @@ const LandingPage = () => {
                 Enterprise
               </h3>
               <div className="text-5xl font-black mb-6 text-blue-600">
-                ₦{billingCycle === "monthly" ? "2.5k" : "25k"}
+                ₦{billingCycle === "monthly" ? "5,000" : "45,000"}
                 <span className="text-xs opacity-50 text-white ml-1">
                   /{billingCycle === "monthly" ? "mo" : "yr"}
                 </span>
@@ -708,6 +652,13 @@ const LandingPage = () => {
           </div>
         </footer>
       </div>
+
+      {/* Pricing Modal */}
+      <PricingModal 
+        isOpen={isPricingOpen} 
+        onClose={() => setIsPricingOpen(false)}
+        onSuccess={() => setIsPricingOpen(false)}
+      />
     </div>
   );
 };

@@ -17,6 +17,7 @@ import {
 import StatsGrid from "../components/StatsGrid";
 import AttendanceChart from "../components/AttendanceChart";
 import AttendanceTable from "../components/AttendanceTable";
+import SubscriptionCard from "../components/SubscriptionCard";
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -149,7 +150,7 @@ export default function Dashboard() {
         userName,
         type
       });
-    } catch (error) { toast.error("Sync failed"); }
+    } catch { toast.error("Sync failed"); }
   };
 
   const handleResetAlerts = async () => {
@@ -161,7 +162,7 @@ export default function Dashboard() {
       snapshot.docs.forEach((doc) => batch.delete(doc.ref));
       await batch.commit();
       toast.success("Intelligence reset");
-    } catch (error) { toast.error("Reset failed"); }
+    } catch { toast.error("Reset failed"); }
   };
 
   const downloadQR = () => {
@@ -175,6 +176,9 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-10">
+      
+      {/* SUBSCRIPTION CARD */}
+      <SubscriptionCard />
       
       {/* STATUS BANNER */}
       <div className="flex flex-col md:flex-row items-center justify-between gap-4 px-8 py-4 rounded-[2.5rem] bg-white border border-slate-100 shadow-xl">

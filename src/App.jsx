@@ -12,6 +12,7 @@ import Employees from "./pages/Employees";
 import Logs from "./pages/Logs";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
+import Pricing from "./pages/Pricing";
 import Layout from "./components/Layout";
 import { Toaster } from "react-hot-toast";
 
@@ -65,6 +66,7 @@ export default function App() {
           <Route path="/logs" element={<ProtectedRoute><Logs /></ProtectedRoute>} />
           <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+          <Route path="/pricing" element={<ProtectedRoute><Pricing /></ProtectedRoute>} />
           
           <Route path="/qr-terminal" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
 

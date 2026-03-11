@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
-import { LogOut, LayoutDashboard, Users, Clock, Settings, Menu, X, FileBarChart, ShieldCheck, QrCode } from "lucide-react"; // 🟢 Added QrCode icon
+import { LogOut, LayoutDashboard, Users, Clock, Settings, Menu, X, FileBarChart, ShieldCheck, QrCode, Crown } from "lucide-react"; // 🟢 Added Crown icon
 import { auth, db } from "../lib/firebase";
 import { collection, addDoc, serverTimestamp, doc, getDoc } from "firebase/firestore";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { calculateAttendanceStatus } from "../services/shiftService"; 
+import SubscriptionBadge from "./SubscriptionBadge";
 import toast from 'react-hot-toast';
 
 export default function Layout({ children }) {
@@ -68,6 +69,7 @@ export default function Layout({ children }) {
       "/employees": "Staff Directory",
       "/logs": "Real-time Attendance",
       "/reports": "Analytics & Export",
+      "/pricing": "Subscription Plans",
       "/settings": "Business Configuration",
       "/qr-terminal": "Terminal Generator" // 🟢 Added title
     };
@@ -115,8 +117,9 @@ export default function Layout({ children }) {
           
           <div className="my-6 border-t border-slate-100" />
           
-          {/* 🟢 NEW QR TERMINAL LINK */}
+          {/* 🟢 NEW QR TERMINAL AND PRICING LINKS */}
           <NavItem icon={<QrCode size={20}/>} label="QR Terminal" path="/settings" /> 
+          <NavItem icon={<Crown size={20}/>} label="Upgrade Plan" path="/pricing" />
           <NavItem icon={<Settings size={20}/>} label="Settings" path="/settings" />
         </nav>
 
@@ -135,6 +138,7 @@ export default function Layout({ children }) {
             <h1 className="font-black text-slate-900 text-lg tracking-tight">{getHeaderTitle(location.pathname)}</h1>
           </div>
           <div className="flex items-center gap-4">
+            <SubscriptionBadge />
             <div className="text-right hidden sm:block">
               <p className="text-sm font-black text-slate-900 leading-none">{user?.displayName || "Admin Account"}</p>
               <p className="text-[10px] text-indigo-500 font-black uppercase mt-1 tracking-widest">Administrator</p>
