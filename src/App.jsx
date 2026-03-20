@@ -18,7 +18,7 @@ import { Toaster } from "react-hot-toast";
 
 const LoadingSpinner = () => (
   <div className="h-screen w-screen flex flex-col items-center justify-center bg-slate-900">
-    <div className="animate-spin rounded-[1.5rem] h-12 w-12 border-4 border-slate-700 border-t-blue-600 shadow-xl"></div>
+    <div className="animate-spin rounded-3x1 h-12 w-12 border-4 border-slate-700 border-t-blue-600 shadow-xl"></div>
     <p className="mt-8 text-white font-black uppercase text-[10px] tracking-[0.3em]">Securing Connection</p>
   </div>
 );
