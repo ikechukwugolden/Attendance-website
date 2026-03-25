@@ -1,12 +1,13 @@
 import { auth, googleProvider, db } from "../lib/firebase";
 import { signInWithPopup, signInWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, useLocation, Link } from "react-router-dom";
 import { useState } from "react";
 import { toast } from "react-hot-toast";
 
 export default function Login() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [email, setEmail] = useState("");
@@ -18,6 +19,14 @@ export default function Login() {
   // This ensures that even if an Admin logs in from a new device, 
   // they are sent to the right place based on their setup status.
   const handleSmartRedirect = async (user) => {
+    const redirectPath = location.state?.from;
+    const isScanRedirect = typeof redirectPath === "string" && redirectPath.startsWith("/scan");
+
+    if (isScanRedirect) {
+      navigate(redirectPath, { replace: true });
+      return;
+    }
+
     try {
       const userDoc = await getDoc(doc(db, "users", user.uid));
       
@@ -25,16 +34,16 @@ export default function Login() {
         const userData = userDoc.data();
         // If they are an admin but haven't finished setup, send them to calibrate
         if (userData.role === "admin" && !userData.hasCompletedSetup) {
-          navigate("/setup-business");
+          navigate("/setup-business", { replace: true });
         } else {
-          navigate("/dashboard");
+          navigate("/dashboard", { replace: true });
         }
       } else {
         // If no document exists (like a first-time Google user), send to setup
-        navigate("/setup-business");
+        navigate("/setup-business", { replace: true });
       }
     } catch (err) {
-      navigate("/dashboard");
+      navigate("/dashboard", { replace: true });
     }
   };
 

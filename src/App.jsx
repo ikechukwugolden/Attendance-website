@@ -81,8 +81,16 @@ export default function App() {
 // Logic components
 function PublicRoute({ children }) {
   const { user, loading } = useAuth();
+  const location = useLocation();
   if (loading) return <LoadingSpinner />;
-  return !user ? children : <Navigate to="/dashboard" replace />;
+  if (!user) return children;
+
+  const redirectPath = location.state?.from;
+  if (typeof redirectPath === "string" && redirectPath.startsWith("/scan")) {
+    return <Navigate to={redirectPath} replace />;
+  }
+
+  return <Navigate to="/dashboard" replace />;
 }
 
 function AuthOnlyRoute({ children }) {

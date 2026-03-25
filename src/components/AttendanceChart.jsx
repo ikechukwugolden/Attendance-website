@@ -111,9 +111,9 @@ export default function AttendanceChart({ logs = [], data = [] }) {
         </div>
       </div>
 
-      <div className="h-[400px] w-full">
+      <div className="h-[400px] w-full min-h-[300px]">
         {chartData.some(d => d.Early + d.OnTime + d.Late > 0) ? (
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer width="100%" height="100%" minWidth={320} minHeight={280} aspect={4/3}>
             <BarChart data={chartData} margin={{ left: -20, right: 10 }}>
               <CartesianGrid strokeDasharray="10 10" vertical={false} stroke="#f1f5f9" />
               <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11, fontWeight: 900 }} dy={15} />

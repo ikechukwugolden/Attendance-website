@@ -1,0 +1,102 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function hasProfile() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function myProfile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isSelf(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function myBusinessId() {
+      return hasProfile() ? myProfile().businessId : null;
+    }
+
+    function canAccessBusiness(businessId) {
+      return isSignedIn() &&
+        (request.auth.uid == businessId || myBusinessId() == businessId);
+    }
+
+    function sameBusiness(data) {
+      return isSignedIn() &&
+        (data.businessId == request.auth.uid || data.businessId == myBusinessId());
+    }
+
+    match /users/{userId} {
+      allow read: if isSelf(userId)
+        || (isSignedIn() && resource.data.role == "admin")
+        || (isSignedIn() && resource.data.businessId == request.auth.uid)
+        || (isSignedIn() && userId == myBusinessId());
+
+      allow create: if isSelf(userId);
+
+      allow update: if isSelf(userId)
+        || (isSignedIn() && resource.data.businessId == request.auth.uid);
+
+      allow delete: if false;
+    }
+
+    match /business_settings/{businessId} {
+      allow read: if canAccessBusiness(businessId);
+      allow create, update, delete: if isSignedIn() && request.auth.uid == businessId;
+    }
+
+    match /attendance_logs/{logId} {
+      allow read: if sameBusiness(resource.data);
+
+      allow create: if isSignedIn()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.businessId is string
+        && sameBusiness(request.resource.data);
+
+      allow update, delete: if false;
+    }
+
+    match /dismissed_alerts/{alertId} {
+      allow read: if isSignedIn() && resource.data.businessId == request.auth.uid;
+
+      allow create, update: if isSignedIn()
+        && request.resource.data.businessId == request.auth.uid
+        && alertId.matches('^' + request.auth.uid + '_.*');
+
+      allow delete: if isSignedIn() && resource.data.businessId == request.auth.uid;
+    }
+
+    match /posts/{postId} {
+      allow read: if true;
+
+      allow create: if isSignedIn()
+        && request.resource.data.businessId == request.auth.uid;
+
+      allow update: if isSignedIn() && (
+        request.auth.uid == resource.data.businessId ||
+        (
+          request.resource.data.businessId == resource.data.businessId &&
+          request.resource.data.diff(resource.data).changedKeys().hasOnly(['likes'])
+        )
+      );
+
+      allow delete: if isSignedIn() && request.auth.uid == resource.data.businessId;
+    }
+
+    match /system/{docId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

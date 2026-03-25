@@ -1,7 +1,8 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
-import { getFunctions } from "firebase/functions"; // 1. Add this import
+import { getFunctions } from "firebase/functions";
+import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -15,6 +16,17 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
-export const functions = getFunctions(app); // 2. Add this export
+export const functions = getFunctions(app);
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
+
+// Optional hardening: Firebase App Check blocks most non-genuine client traffic.
+// Set VITE_RECAPTCHA_SITE_KEY in .env to enable this in production.
+const recaptchaSiteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY;
+export const appCheck =
+  typeof window !== "undefined" && recaptchaSiteKey
+    ? initializeAppCheck(app, {
+        provider: new ReCaptchaV3Provider(recaptchaSiteKey),
+        isTokenAutoRefreshEnabled: true
+      })
+    : null;

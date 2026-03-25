@@ -1,18 +1,19 @@
 import { useState, useEffect } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useSearchParams, useNavigate, useLocation } from "react-router-dom";
 import { db } from "../lib/firebase";
 import {
   collection, addDoc, serverTimestamp, doc, getDoc,
   query, where, orderBy, onSnapshot, setDoc
 } from "firebase/firestore";
 import { useAuth } from "../context/AuthContext";
-import { CheckCircle, Loader2, Users, LogOut, Building2, Clock, Calendar, MapPin, ShieldCheck } from "lucide-react";
+import { CheckCircle, Loader2, Users, LogOut, Building2, Clock, Calendar, MapPin, ShieldCheck, Smartphone, Tablet, Monitor } from "lucide-react";
 import toast from "react-hot-toast";
 
 export default function ScanPage() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [businessData, setBusinessData] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -39,12 +40,40 @@ export default function ScanPage() {
     return R * c;
   };
 
+  const getDeviceTypeFromUserAgent = (userAgent = "") => {
+    if (!userAgent) return "Unknown";
+
+    const isTablet = /iPad|Tablet|PlayBook|Silk|(Android(?!.*Mobile))/i.test(userAgent);
+    const isMobile = /Mobile|iPhone|iPod|Android.*Mobile|Windows Phone/i.test(userAgent);
+
+    if (isTablet) return "Tablet";
+    if (isMobile) return "Mobile";
+    return "Desktop";
+  };
+
+  const getDeviceType = () => getDeviceTypeFromUserAgent(navigator.userAgent || "");
+
+  const getLogDeviceType = (log) => {
+    if (log.deviceType) return log.deviceType;
+    if (log.device?.type) return log.device.type;
+    return getDeviceTypeFromUserAgent(log.userAgent || log.device?.userAgent || "");
+  };
+
+  const deviceIcon = (deviceType) => {
+    if (deviceType === "Mobile") return <Smartphone size={10} className="inline mr-1 text-blue-300" />;
+    if (deviceType === "Tablet") return <Tablet size={10} className="inline mr-1 text-cyan-300" />;
+    return <Monitor size={10} className="inline mr-1 text-violet-300" />;
+  };
+
   useEffect(() => {
     if (!user && !loadingBusiness) {
       toast.error("Please login to confirm presence");
-      navigate("/login");
+      navigate("/login", {
+        replace: true,
+        state: { from: `${location.pathname}${location.search}` }
+      });
     }
-  }, [user, loadingBusiness, navigate]);
+  }, [user, loadingBusiness, navigate, location.pathname, location.search]);
 
   useEffect(() => {
     async function fetchBusiness() {
@@ -177,6 +206,8 @@ export default function ScanPage() {
         userId: user.uid,
         userName: user.displayName || user.email.split('@')[0],
         userPhoto: user.photoURL || "",
+        userAgent: navigator.userAgent || "",
+        deviceType: getDeviceType(),
         status: statusText,
         timestamp: serverTimestamp(),
         type: isCheckingOut ? "Check_Out" : "QR_Scan",
@@ -281,11 +312,34 @@ export default function ScanPage() {
                 </div>
               ))}
             </div>
+
+            <div className="space-y-2">
+              {coworkers.slice(0, 5).map((person, idx) => {
+                const personDeviceType = getLogDeviceType(person);
+                return (
+                  <div key={`active-${person.userId || idx}`} className="flex items-center justify-between text-[10px] bg-white/5 rounded-xl px-3 py-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <img
+                        src={person.userPhoto || `https://ui-avatars.com/api/?name=${person.userName}`}
+                        className="h-6 w-6 rounded-lg object-cover bg-slate-800"
+                        alt=""
+                      />
+                      <span className="font-black truncate">{person.userName}</span>
+                    </div>
+                    <span className="font-bold uppercase text-slate-300 tracking-wide">
+                      {deviceIcon(personDeviceType)}
+                      {personDeviceType}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
             {allTodayLogs.map((log) => {
               const isOut = log.type === 'Check_Out';
+              const logDeviceType = getLogDeviceType(log);
               return (
                 <div key={log.id} className={`flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/5 transition-opacity ${isOut ? 'opacity-40 grayscale-[0.5]' : ''}`}>
                   <div className="flex items-center gap-3">
@@ -293,12 +347,13 @@ export default function ScanPage() {
                     <div>
                       <p className="text-[11px] font-bold leading-none mb-1">{log.userName}</p>
                       <p className={`text-[9px] font-black uppercase ${isOut ? 'text-slate-500' : 'text-emerald-400'}`}>
-                        {isOut ? 'Left Site' : 'Arrived'}
+                        {isOut ? 'Left Site' : 'Arrived'} - {logDeviceType}
                       </p>
                     </div>
                   </div>
                   <div className="text-right">
                     <p className="text-[10px] font-mono text-white/70">{formatTimeLabel(log.timestamp)}</p>
+                    {deviceIcon(logDeviceType)}
                     {log.isVerified && <MapPin size={10} className="inline mr-1 text-blue-400" />}
                   </div>
                 </div>
