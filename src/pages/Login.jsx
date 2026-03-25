@@ -68,7 +68,18 @@ export default function Login() {
       const res = await signInWithPopup(auth, googleProvider);
       await handleSmartRedirect(res.user);
     } catch (err) {
-      toast.error("Google sign-in failed.");
+      console.error("Google sign-in failed:", err);
+      const code = err?.code || "";
+
+      if (code.includes("auth/popup-blocked")) {
+        toast.error("Popup blocked. Please allow popups and try again.");
+      } else if (code.includes("auth/popup-closed-by-user")) {
+        toast.error("You closed the Google popup before sign-in completed.");
+      } else if (code.includes("auth/unauthorized-domain")) {
+        toast.error("This domain is not authorized in Firebase Auth.");
+      } else {
+        toast.error(`Google sign-in failed${code ? `: ${code}` : "."}`);
+      }
     } finally {
       setIsLoading(false);
     }

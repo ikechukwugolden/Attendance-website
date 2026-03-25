@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { db } from "../lib/firebase";
 import { collection, onSnapshot, query, where, doc, updateDoc, orderBy } from "firebase/firestore";
 import { useAuth } from "../context/AuthContext";
-import { UserPlus, Search, Building2, Loader2, MoreVertical, Edit3, Trash2, FileText, CheckCircle2, LogOut } from "lucide-react";
+import { UserPlus, Search, Building2, Loader2, MoreVertical, Edit3, Trash2, FileText, CheckCircle2, LogOut, Mail, Send, X, Copy } from "lucide-react";
 import toast from "react-hot-toast";
 
 export default function Employees() {
@@ -12,6 +12,10 @@ export default function Employees() {
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(true);
   const [activeMenu, setActiveMenu] = useState(null);
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteName, setInviteName] = useState("");
+  const inviteLink = user?.uid ? `${window.location.origin}/scan?bid=${user.uid}` : "";
 
   useEffect(() => {
     if (!user?.uid) return;
@@ -45,6 +49,98 @@ export default function Employees() {
   }, [user]);
 
   const handlePrint = () => window.print();
+
+  const handleInvite = () => {
+    setShowInviteModal(true);
+  };
+
+  const buildInviteContent = () => {
+    const businessName = user?.businessName || "our team";
+    const greeting = inviteName.trim() ? `Hi ${inviteName.trim()},` : "Hi,";
+    const subject = `You're invited to join ${businessName} attendance`;
+    const body = [
+      greeting,
+      "",
+      `You're invited to join ${businessName} on Attendly.`,
+      "Use this secure terminal link to clock in/out:",
+      inviteLink,
+      "",
+      "If you need help, reply to this email.",
+      "",
+      `- ${businessName} Admin`
+    ].join("\n");
+
+    return { subject, body };
+  };
+
+  const handleShareInviteLink = async () => {
+    if (!inviteLink) {
+      toast.error("Invite link unavailable right now.");
+      return;
+    }
+
+    const businessName = user?.businessName || "our team";
+    const shareText = `Join ${businessName} attendance terminal: ${inviteLink}`;
+
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: `${businessName} Staff Invite`,
+          text: shareText,
+          url: inviteLink
+        });
+        toast.success("Invite shared");
+        return;
+      }
+    } catch (err) {
+      if (err?.name !== "AbortError") {
+        toast.error("Could not open share sheet. Copying link instead.");
+      }
+    }
+
+    try {
+      await navigator.clipboard.writeText(inviteLink);
+      toast.success("Invite link copied");
+    } catch {
+      window.prompt("Copy and send this invite link:", inviteLink);
+    }
+  };
+
+  const handleSendEmailInvite = (e) => {
+    e.preventDefault();
+
+    const email = inviteEmail.trim();
+    if (!email) {
+      toast.error("Enter an email address.");
+      return;
+    }
+
+    const isValidEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+    if (!isValidEmail) {
+      toast.error("Enter a valid email address.");
+      return;
+    }
+
+    const { subject, body } = buildInviteContent();
+    const mailtoUrl = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    window.location.href = mailtoUrl;
+    toast.success("Opening your email app...");
+    setShowInviteModal(false);
+    setInviteEmail("");
+    setInviteName("");
+  };
+
+  const handleCopyInviteMessage = async () => {
+    const { subject, body } = buildInviteContent();
+    const fullMessage = `Subject: ${subject}\n\n${body}`;
+
+    try {
+      await navigator.clipboard.writeText(fullMessage);
+      toast.success("Invite message copied");
+    } catch {
+      window.prompt("Copy this invite message:", fullMessage);
+    }
+  };
 
   const updateDepartment = async (empId) => {
     const newDept = prompt("New department name:");
@@ -86,7 +182,7 @@ export default function Employees() {
           <button onClick={handlePrint} className="bg-white border border-slate-200 text-slate-600 px-6 py-4 rounded-2xl flex items-center gap-2 font-black text-xs uppercase tracking-widest hover:bg-slate-50 transition-all shadow-sm">
             <FileText size={18} /> Export
           </button>
-          <button className="bg-slate-900 text-white px-6 py-4 rounded-2xl flex items-center gap-2 font-black text-xs uppercase tracking-widest hover:bg-blue-600 transition-all shadow-xl shadow-blue-900/20">
+          <button onClick={handleInvite} className="bg-slate-900 text-white px-6 py-4 rounded-2xl flex items-center gap-2 font-black text-xs uppercase tracking-widest hover:bg-blue-600 transition-all shadow-xl shadow-blue-900/20">
             <UserPlus size={18} /> Invite
           </button>
         </div>
@@ -195,6 +291,79 @@ export default function Employees() {
           </table>
         </div>
       </div>
+
+      {showInviteModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm p-4 flex items-center justify-center" onClick={() => setShowInviteModal(false)}>
+          <div className="w-full max-w-lg bg-white rounded-[2.5rem] border border-slate-100 shadow-2xl p-6 sm:p-8" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-4 mb-6">
+              <div>
+                <h3 className="text-2xl font-black text-slate-900 tracking-tight italic">Invite Employee</h3>
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mt-1">Send Secure Attendance Access</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowInviteModal(false)}
+                className="p-2 rounded-xl bg-slate-50 text-slate-500 hover:bg-slate-100"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSendEmailInvite} className="space-y-4">
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Employee Name (Optional)</label>
+                <input
+                  type="text"
+                  value={inviteName}
+                  onChange={(e) => setInviteName(e.target.value)}
+                  placeholder="e.g. John"
+                  className="mt-2 w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-200"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Employee Email</label>
+                <input
+                  type="email"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  placeholder="employee@company.com"
+                  className="mt-2 w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-200"
+                  required
+                />
+              </div>
+
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Invite Link</p>
+                <p className="text-xs font-mono text-slate-600 break-all">{inviteLink}</p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={handleCopyInviteMessage}
+                  className="py-3 bg-slate-100 text-slate-700 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-slate-200"
+                >
+                  <Copy size={14} /> Copy Msg
+                </button>
+                <button
+                  type="button"
+                  onClick={handleShareInviteLink}
+                  className="py-3 bg-slate-100 text-slate-700 rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-slate-200"
+                >
+                  <Mail size={14} /> Share Link
+                </button>
+                <button
+                  type="submit"
+                  className="py-3 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-blue-600"
+                >
+                  <Send size={14} /> Send Email
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

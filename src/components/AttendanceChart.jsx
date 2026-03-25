@@ -12,6 +12,9 @@ import { BarChart3 } from 'lucide-react';
 
 export default function AttendanceChart({ logs = [], data = [] }) {
   const [chartData, setChartData] = useState([]);
+  const [viewportWidth, setViewportWidth] = useState(
+    typeof window !== "undefined" ? window.innerWidth : 1024
+  );
   
   // 1. Memoize the dataSource to prevent unnecessary reference changes
   const dataSource = useMemo(() => (logs.length > 0 ? logs : data), [logs, data]);
@@ -63,6 +66,14 @@ export default function AttendanceChart({ logs = [], data = [] }) {
     // when the actual CONTENT of the logs changes.
   }, [dataSource]); 
 
+  useEffect(() => {
+    const handleResize = () => setViewportWidth(window.innerWidth);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  const isMobile = viewportWidth < 640;
+
   // Calculations for Summary Stats
   const totals = useMemo(() => chartData.reduce(
     (acc, d) => {
@@ -97,10 +108,10 @@ export default function AttendanceChart({ logs = [], data = [] }) {
   };
 
   return (
-    <div className="w-full bg-white border border-slate-100 p-8 rounded-[3rem] shadow-xl shadow-slate-200/50 transition-all duration-500">
-      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 mb-12">
+    <div className="w-full bg-white border border-slate-100 p-4 sm:p-8 rounded-[2.2rem] sm:rounded-[3rem] shadow-xl shadow-slate-200/50 transition-all duration-500">
+      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 mb-8 sm:mb-12">
         <div>
-          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Weekly Trends</h2>
+          <h2 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">Weekly Trends</h2>
           <p className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-600 mt-2">7-Day Performance Metric</p>
         </div>
 
@@ -111,17 +122,36 @@ export default function AttendanceChart({ logs = [], data = [] }) {
         </div>
       </div>
 
-      <div className="h-[400px] w-full min-h-[300px]">
+      <div className="h-[300px] sm:h-[400px] w-full min-h-[280px]">
         {chartData.some(d => d.Early + d.OnTime + d.Late > 0) ? (
-          <ResponsiveContainer width="100%" height="100%" minWidth={320} minHeight={280} aspect={4/3}>
-            <BarChart data={chartData} margin={{ left: -20, right: 10 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart
+              data={chartData}
+              margin={{
+                left: isMobile ? -30 : -20,
+                right: isMobile ? 0 : 10,
+                top: 8,
+                bottom: isMobile ? 0 : 4
+              }}
+            >
               <CartesianGrid strokeDasharray="10 10" vertical={false} stroke="#f1f5f9" />
-              <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11, fontWeight: 900 }} dy={15} />
-              <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11, fontWeight: 900 }} />
+              <XAxis
+                dataKey="name"
+                axisLine={false}
+                tickLine={false}
+                tick={{ fill: '#94a3b8', fontSize: isMobile ? 10 : 11, fontWeight: 900 }}
+                dy={isMobile ? 10 : 15}
+              />
+              <YAxis
+                hide={isMobile}
+                axisLine={false}
+                tickLine={false}
+                tick={{ fill: '#94a3b8', fontSize: 11, fontWeight: 900 }}
+              />
               <Tooltip content={<CustomTooltip />} cursor={{ fill: '#f8fafc', radius: 20 }} />
-              <Bar dataKey="Early" name="Early" stackId="a" fill="#3b82f6" barSize={36} radius={[0, 0, 0, 0]} />
-              <Bar dataKey="OnTime" name="On-Time" stackId="a" fill="#10b981" barSize={36} radius={[0, 0, 0, 0]} />
-              <Bar dataKey="Late" name="Late" stackId="a" fill="#ef4444" barSize={36} radius={[12, 12, 12, 12]} />
+              <Bar dataKey="Early" name="Early" stackId="a" fill="#3b82f6" barSize={isMobile ? 22 : 36} radius={[0, 0, 0, 0]} />
+              <Bar dataKey="OnTime" name="On-Time" stackId="a" fill="#10b981" barSize={isMobile ? 22 : 36} radius={[0, 0, 0, 0]} />
+              <Bar dataKey="Late" name="Late" stackId="a" fill="#ef4444" barSize={isMobile ? 22 : 36} radius={[12, 12, 12, 12]} />
             </BarChart>
           </ResponsiveContainer>
         ) : (
@@ -145,9 +175,9 @@ function Stat({ label, value, color }) {
   };
 
   return (
-    <div className={`px-6 py-3 rounded-2xl border flex flex-col items-center min-w-[100px] ${colors[color]}`}>
+    <div className={`px-4 sm:px-6 py-3 rounded-2xl border flex flex-col items-center min-w-[84px] sm:min-w-[100px] ${colors[color]}`}>
       <span className="text-[9px] font-black uppercase tracking-widest opacity-40 mb-1">{label}</span>
-      <span className="text-xl font-black">{value}</span>
+      <span className="text-lg sm:text-xl font-black">{value}</span>
     </div>
   );
 }
