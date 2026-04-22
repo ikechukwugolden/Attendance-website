@@ -20,7 +20,7 @@ export const functions = getFunctions(app);
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 
-// Optional hardening: Firebase App Check blocks most non-genuine client traffic.
+
 // Set VITE_RECAPTCHA_SITE_KEY in .env to enable this in production.
 const recaptchaSiteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY;
 export const appCheck =

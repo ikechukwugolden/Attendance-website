@@ -8,6 +8,7 @@ import {
 import { useAuth } from "../context/AuthContext";
 import { CheckCircle, Loader2, Users, LogOut, Building2, Clock, Calendar, MapPin, ShieldCheck, Smartphone, Tablet, Monitor } from "lucide-react";
 import toast from "react-hot-toast";
+import ModernLoaderV1 from "../components/ModernLoaderV1";
 
 export default function ScanPage() {
   const { user } = useAuth();
@@ -18,6 +19,7 @@ export default function ScanPage() {
   const [businessData, setBusinessData] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [loadingBusiness, setLoadingBusiness] = useState(true);
+  const [loadingProgress, setLoadingProgress] = useState(0);
   const [isSuccess, setIsSuccess] = useState(false);
   const [myStatus, setMyStatus] = useState("");
   const [coworkers, setCoworkers] = useState([]);
@@ -78,12 +80,18 @@ export default function ScanPage() {
   useEffect(() => {
     async function fetchBusiness() {
       if (!businessId) {
+        setLoadingProgress(100);
         setLoadingBusiness(false);
         return;
       }
       try {
+        setLoadingProgress(15); // Started loading
         const uSnap = await getDoc(doc(db, "users", businessId));
+        setLoadingProgress(40); // Fetched user data
+        
         const sSnap = await getDoc(doc(db, "business_settings", businessId));
+        setLoadingProgress(70); // Fetched settings
+        
         if (uSnap.exists()) {
           setBusinessData({
             ...uSnap.data(),
@@ -91,8 +99,10 @@ export default function ScanPage() {
             tier: uSnap.data().tier || 'FREE'
           });
         }
+        setLoadingProgress(100); // Complete
       } catch (err) {
         toast.error("Connection error.");
+        setLoadingProgress(100);
       } finally {
         setLoadingBusiness(false);
       }
@@ -105,6 +115,8 @@ export default function ScanPage() {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
+    setLoadingProgress(85); // Starting to sync attendance data
+    
     const q = query(
       collection(db, "attendance_logs"),
       where("businessId", "==", businessId),
@@ -113,6 +125,8 @@ export default function ScanPage() {
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
+      setLoadingProgress(95); // Data synced
+      
       const allLogs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       setAllTodayLogs(allLogs);
       
@@ -238,11 +252,7 @@ export default function ScanPage() {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  if (loadingBusiness) return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-950">
-      <Loader2 className="animate-spin text-blue-500" size={40} />
-    </div>
-  );
+  if (loadingBusiness) return <ModernLoaderV1 progress={loadingProgress} />;
 
   if (isSuccess) {
     const statusConfig = {
